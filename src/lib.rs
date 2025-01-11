@@ -6,9 +6,11 @@ use nom::character::complete::space0;
 use nom::error::Error;
 use nom::error::ErrorKind;
 use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::yaml::Hash;
 use yaml_rust2::scanner::ScanError;
 use std::{f32::consts::E, result::Result};
 use std::fmt;
+use core::result::Iter;
 
 
 #[derive(Debug, Clone)]
@@ -62,24 +64,36 @@ fn to_str(arg: &Yaml) -> Result<&str, InvalidYamlError> {
 }
 
 
-// #[allow(dead_code)]
-// fn parse_test(s: &str) -> Result<Vec<TestCase>, InvalidYamlError> {
+// fn load_yaml_file(s: &str) -> Result<Yaml, ScanError> {
 //     let docs = YamlLoader::load_from_str(s)?;
-//     let doc = &docs[0];
-//     let tests = doc.as_hash().unwrap();
-//     let mut vec = Vec::new();
-
-//     for (name, test) in tests.iter() {
-//         let name = name.as_str().ok_or(InvalidYamlError)?;
-//         let test = test.as_hash().unwrap();
-//         let param = test.get(&Yaml::String("$param".to_string())).unwrap().as_str().unwrap();
-//         let results = test.get(&Yaml::String("$result".to_string())).unwrap().as_vec().unwrap();
-//         let result = (results[0].as_str().unwrap().into(), results[1].as_str().unwrap().into());
-//         vec.push(TestCase::new(name, param, result));
-//     }
-
-//     Ok(vec)
+//     let doc = docs[0].clone();
+//     Ok(doc)
 // }
+
+
+fn parse_test(y: &Yaml) -> Result<&Hash, InvalidYamlError>{
+    y.as_hash().ok_or(InvalidYamlError)
+}
+
+
+#[allow(dead_code)]
+fn load_yaml_file(s: &str) -> Result<Vec<TestCase>, ScanError> {
+    let docs = YamlLoader::load_from_str(s)?;
+    let doc = &docs[0];
+    
+    let mut vec = Vec::new();
+
+    for (name, test) in tests.iter() {
+        let name = name.as_str().ok_or(InvalidYamlError)?;
+        let test = test.as_hash().unwrap();
+        let param = test.get(&Yaml::String("$param".to_string())).unwrap().as_str().unwrap();
+        let results = test.get(&Yaml::String("$result".to_string())).unwrap().as_vec().unwrap();
+        let result = (results[0].as_str().unwrap().into(), results[1].as_str().unwrap().into());
+        vec.push(TestCase::new(name, param, result));
+    }
+
+    Ok(vec)
+}
 
 
 
@@ -94,21 +108,21 @@ fn delimeter(input: &str) -> IResult<&str, char> {
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn parse_test_test() {
-    //     let s =
-    //     "
-    //     base_case:
-    //         $param: '-A INPUT'
-    //         $result:
-    //         - ''
-    //         - 'INPUT'
-    //     ";
-    //     let tests = parse_test(s);
-    //     let result = ResultScheme::new("", "INPUT");
-    //     let valid = vec![TestCase {name: "base_case".to_string(), param: "-A INPUT".to_string(), result: result}];
-    //     assert_eq!(tests, Ok(valid));
-    // }
+    #[test]
+    fn load_yaml_file() {
+        let s =
+        "
+        base_case:
+            $param: '-A INPUT'
+            $result:
+            - ''
+            - 'INPUT'
+        ";
+        let tests = load_yaml_file(s);
+        let result = ResultScheme::new("", "INPUT");
+        let valid = vec![TestCase {name: "base_case".to_string(), param: "-A INPUT".to_string(), result: result}];
+        assert_eq!(tests, Ok(valid));
+    }
     
     #[test]
     fn chan_test() {
@@ -136,24 +150,20 @@ mod tests {
 fn take_until_eof(s: &str) -> IResult<&str, &str>{
     alt(
         (
-        take_until(" ! "),
-        take_until(" -"),
-        rest
+            take_until(" ! "),
+            take_until(" -"),
+            rest
         )
     )(s) 
-}
-
-
-
-fn dash_predicat(s: &str) -> IResult<&str, Vec<char>> {
-    many_m_n(1, 2,char('-'))(s)
 }
 
 
 #[allow(dead_code)]
 fn token(arg: &'static str) -> impl Fn(&str) ->  IResult<&str, &str>{
     move |input: &str | {
-        let (other, (neg, _,  _, _, _, res)) = (opt(tag(" ! ")),  space0, dash_predicat, tag(arg), char(' '), take_until_eof).parse(input)?;
+        let dash =  many_m_n(1, 2,char('-'));
+        let (other, (neg, _,  _, _, _, res)) = (opt(tag(" ! ")),  space0, dash, tag(arg), char(' '), take_until_eof).parse(input)?;
+        
         Ok((other, res))
     }
 }
