@@ -1,12 +1,13 @@
 use nom::{
-    branch::alt, bytes::complete::{is_a, tag, take_until}, character::complete::char, combinator::opt, multi::many_m_n,  IResult
+    branch::alt, bytes::complete::{is_a, tag, take_until}, character::complete::char, combinator::{opt, rest}, error, multi::many_m_n, IResult
 };
 use nom::sequence::Tuple;
 use nom::character::complete::space0;
 use nom::error::Error;
+use nom::error::ErrorKind;
 use yaml_rust2::{Yaml, YamlLoader};
 use yaml_rust2::scanner::ScanError;
-use std::result::Result;
+use std::{f32::consts::E, result::Result};
 use std::fmt;
 
 
@@ -61,24 +62,24 @@ fn to_str(arg: &Yaml) -> Result<&str, InvalidYamlError> {
 }
 
 
-#[allow(dead_code)]
-fn parse_test(s: &str) -> Result<Vec<TestCase>, InvalidYamlError> {
-    let docs = YamlLoader::load_from_str(s)?;
-    let doc = &docs[0];
-    let tests = doc.as_hash().unwrap();
-    let mut vec = Vec::new();
+// #[allow(dead_code)]
+// fn parse_test(s: &str) -> Result<Vec<TestCase>, InvalidYamlError> {
+//     let docs = YamlLoader::load_from_str(s)?;
+//     let doc = &docs[0];
+//     let tests = doc.as_hash().unwrap();
+//     let mut vec = Vec::new();
 
-    for (name, test) in tests.iter() {
-        let name = name.as_str().ok_or(InvalidYamlError)?;
-        let test = test.as_hash().unwrap();
-        let param = test.get(&Yaml::String("$param".to_string())).unwrap().as_str().unwrap();
-        let results = test.get(&Yaml::String("$result".to_string())).unwrap().as_vec().unwrap();
-        let result = (results[0].as_str().unwrap().into(), results[1].as_str().unwrap().into());
-        vec.push(TestCase::new(name, param, result));
-    }
+//     for (name, test) in tests.iter() {
+//         let name = name.as_str().ok_or(InvalidYamlError)?;
+//         let test = test.as_hash().unwrap();
+//         let param = test.get(&Yaml::String("$param".to_string())).unwrap().as_str().unwrap();
+//         let results = test.get(&Yaml::String("$result".to_string())).unwrap().as_vec().unwrap();
+//         let result = (results[0].as_str().unwrap().into(), results[1].as_str().unwrap().into());
+//         vec.push(TestCase::new(name, param, result));
+//     }
 
-    Ok(vec)
-}
+//     Ok(vec)
+// }
 
 
 
@@ -93,21 +94,21 @@ fn delimeter(input: &str) -> IResult<&str, char> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn parse_test_test() {
-        let s =
-        "
-        base_case:
-            $param: '-A INPUT'
-            $result:
-            - ''
-            - 'INPUT'
-        ";
-        let tests = parse_test(s);
-        let result = ResultScheme::new("", "INPUT");
-        let valid = vec![TestCase {name: "base_case".to_string(), param: "-A INPUT".to_string(), result: result}];
-        assert_eq!(tests, Ok(valid));
-    }
+    // #[test]
+    // fn parse_test_test() {
+    //     let s =
+    //     "
+    //     base_case:
+    //         $param: '-A INPUT'
+    //         $result:
+    //         - ''
+    //         - 'INPUT'
+    //     ";
+    //     let tests = parse_test(s);
+    //     let result = ResultScheme::new("", "INPUT");
+    //     let valid = vec![TestCase {name: "base_case".to_string(), param: "-A INPUT".to_string(), result: result}];
+    //     assert_eq!(tests, Ok(valid));
+    // }
     
     #[test]
     fn chan_test() {
@@ -132,22 +133,16 @@ mod tests {
 }
 
 
-
-  fn take_until_dash(s: &str) -> IResult<&str, &str> {
-    match take_until::<&str, &str, Error<&str>>(" -")(s) {
-        Ok(result) => Ok(result),
-        Err(_) => Ok(("", s)),
-    }
-  }
-
-
 fn take_until_eof(s: &str) -> IResult<&str, &str>{
-    match take_until::<&str, &str, Error<&str>>(" ! ")(s) {
-        Ok(result) => Ok(result),
-        Err(_) => take_until_dash(s),
-    }
-    
+    alt(
+        (
+        take_until(" ! "),
+        take_until(" -"),
+        rest
+        )
+    )(s) 
 }
+
 
 
 fn dash_predicat(s: &str) -> IResult<&str, Vec<char>> {
