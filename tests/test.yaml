@@ -1,5 +1,5 @@
 base_case:
     $param: '-A INPUT'
     $result:
-    - ''
-    - 'INPUT'
+        value: INPUT
+        other: ''

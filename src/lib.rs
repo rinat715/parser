@@ -3,14 +3,13 @@ use nom::{
 };
 use nom::sequence::Tuple;
 use nom::character::complete::space0;
-use nom::error::Error;
-use nom::error::ErrorKind;
 use yaml_rust2::{Yaml, YamlLoader};
 use yaml_rust2::yaml::Hash;
 use yaml_rust2::scanner::ScanError;
-use std::{f32::consts::E, result::Result};
+use std::result::Result;
 use std::fmt;
-use core::result::Iter;
+
+
 
 
 #[derive(Debug, Clone)]
@@ -22,13 +21,37 @@ impl fmt::Display for InvalidYamlError {
     }
 }
 
+impl From<ScanError> for InvalidYamlError {
+    fn from(_: ScanError) -> InvalidYamlError {
+        InvalidYamlError
+    }
+}
+
 
 #[derive(Debug, PartialEq)]
-struct ResultScheme(String, String);
+struct ResultScheme {
+    value: String,
+    other: String
+}
 
 impl ResultScheme {
     fn new(other: &str, result: &str) -> Self {
-        Self(other.into(), result.into())
+        Self {value: result.into() , other: other.into() }
+    }
+
+    fn to_value(&mut self, args: &Hash) {
+
+        macro_rules! assign {
+            ( $var:ident = $default:expr ) => {
+                if let Some(val) = args.get(stringify!($var)) {
+                    self.$var = val.parse().unwrap_or_else(|_| $default);
+                }
+            };
+            ( $var:ident ) => { assign!($var = unreachable!("no default provided")) };
+        }
+
+        assign!(result);
+        assign!(other);
     }
     
 }
@@ -77,13 +100,13 @@ fn parse_test(y: &Yaml) -> Result<&Hash, InvalidYamlError>{
 
 
 #[allow(dead_code)]
-fn load_yaml_file(s: &str) -> Result<Vec<TestCase>, ScanError> {
+fn load_yaml_file(s: &str) -> Result<Vec<TestCase>, InvalidYamlError> {
     let docs = YamlLoader::load_from_str(s)?;
     let doc = &docs[0];
     
     let mut vec = Vec::new();
 
-    for (name, test) in tests.iter() {
+    for (name, test) in doc.as_hash().ok_or(InvalidYamlError)?.iter() {
         let name = name.as_str().ok_or(InvalidYamlError)?;
         let test = test.as_hash().unwrap();
         let param = test.get(&Yaml::String("$param".to_string())).unwrap().as_str().unwrap();
