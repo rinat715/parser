@@ -166,6 +166,9 @@ mod tests {
         let arg = "-A INPUT ! -s 10.0.0.56/30";
         let result = action(arg);
         assert_eq!(result, Ok((" ! -s 10.0.0.56/30", "INPUT")));
+
+        let arg = "dfdfdf";
+        let result = action()
     }
 }
 
@@ -185,7 +188,7 @@ fn take_until_eof(s: &str) -> IResult<&str, &str>{
 fn token(arg: &'static str) -> impl Fn(&str) ->  IResult<&str, &str>{
     move |input: &str | {
         let dash =  many_m_n(1, 2,char('-'));
-        let (other, (neg, _,  _, _, _, res)) = (opt(tag(" ! ")),  space0, dash, tag(arg), char(' '), take_until_eof).parse(input)?;
+        let (other, (neg, *, res)) = (opt(tag(" ! ")),  space0, dash, tag(arg), char(' '), take_until_eof).parse(input)?;
         
         Ok((other, res))
     }
