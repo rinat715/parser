@@ -1,5 +1,3 @@
-use std::collections::btree_map::IterMut;
-
 use nom::{
     branch::alt, bytes::complete::{is_a, tag, take_until,}, character::complete::{char, space1}, combinator::{opt, rest}, error, multi::many_m_n, IResult
 };
@@ -10,18 +8,28 @@ use nom::multi::many1;
 use nom::character::complete::space0;
 
 
+
 #[derive(Debug,PartialEq,Default)]
-struct ActionSetting {
-    action: String,
-    option: String
+enum ActionType {
+    GOTO,
+    REJECT,
+    #[default]
+    PASS
 }
 
 
 #[derive(Debug,PartialEq,Default)]
-struct ACLRule {
+struct ActionSetting <'a>{
+    action: ActionType,
+    option: &'a str
+}
+
+
+#[derive(Debug,PartialEq,Default)]
+pub struct ACLRule <'a> {
     name: String,
-    action: Vec<ActionSetting>,
-    action_modifiers: Vec<ActionSetting>,
+    action: Vec<ActionSetting<'a>>,
+    action_modifiers: Vec<ActionSetting<'a>>,
 }
 
 
@@ -100,7 +108,7 @@ mod tests {
         let res = rule(arg);
         assert_eq!(res, Ok((" --ctstate RELATED,ESTABLISHED", ACLRule{
             name: "INPUT".to_string(),
-            action: vec![ActionSetting{action: "GOTO".to_string(), option: "MY_CHAIN".to_string()}],
+            action: vec![ActionSetting{action: ActionType::GOTO, option: "MY_CHAIN"}],
             ..Default::default()
         })))
     }
@@ -126,7 +134,6 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
   }
 
 
-#[allow(dead_code)]
 fn token(arg: &'static str) -> impl Fn(&str) ->  IResult<&str, Token>{
     move |input: &str | {
         let (input, _) = space0(input)?;
@@ -146,22 +153,22 @@ fn parser(input: &str) -> IResult<&str, Vec<Token>> {
     )))(input)
   }
 
-#[allow(dead_code)]
-fn action(a: &Vec<Token>) -> ActionSetting{
+
+fn action<'a>(a: & Vec<Token<'a>>) -> ActionSetting<'a>{
     let mut res: ActionSetting = Default::default();
 
     for i in a  {
         match i.name {
             "g" => {
-                res.action = String::from("GOTO");
-                res.option = String::from(i.value)
+                res.action = ActionType::GOTO;
+                res.option = i.value
             }
             "j" => {
-                res.action = String::from("REJECT");
-                res.option = String::from(i.value)
+                res.action = ActionType::REJECT;
+                res.option = i.value
             }
 
-            _ => res.action = String::from("PASS")
+            _ => ()
         }
     }
 
@@ -170,8 +177,8 @@ fn action(a: &Vec<Token>) -> ActionSetting{
 }
 
 
-#[allow(dead_code)]
-fn rule(s: &str) -> IResult<&str, ACLRule>{
+
+pub fn rule<'a>(s: &'a str) -> IResult<&str, ACLRule<'a>>{
     let mut rule: ACLRule = Default::default();
 
     let (input, name) =  token("-A")(s)?;
@@ -181,6 +188,8 @@ fn rule(s: &str) -> IResult<&str, ACLRule>{
     let (input, res) = parser(input)?;
 
     rule.action = vec![action(&res)];
+
+    action(&res);
 
     Ok((input, rule))
 
