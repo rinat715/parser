@@ -1,9 +1,8 @@
 use nom::{
-    branch::alt, bytes::complete::{is_a, tag, take_until,}, character::complete::{char, space1}, combinator::{opt, rest}, error, multi::many_m_n, IResult
+    branch::alt, bytes::complete::{tag, take_until}, character::complete::space1, IResult
 };
-use nom::sequence::{pair,preceded};
-use nom::character::complete::{alphanumeric1, not_line_ending};
-use nom::branch::permutation;
+use nom::sequence::preceded;
+use nom::character::complete::not_line_ending;
 use nom::multi::many1;
 use nom::character::complete::space0;
 
