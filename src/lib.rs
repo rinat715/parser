@@ -9,6 +9,7 @@ use nom::{
     IResult,
 };
 use std::str::FromStr;
+use serde_derive::Serialize;
 
 
 #[derive(Debug, PartialEq, Eq)]
@@ -64,20 +65,15 @@ mod tests {
     use super::*;
 
     use serde_derive::Deserialize;
+    use toml::Value;
 
-    #[derive(Deserialize)]
-    struct TokenMock {
-        value: String,
-        negative: bool,
-        name: String,
-    }
 
 
     #[derive(Deserialize)]
     struct TestSuit {
         input: String,
         remaining: String,
-        expected: TokenMock,
+        expected: Value,
     }
 
     #[test]
@@ -85,28 +81,17 @@ mod tests {
         let test: TestSuit = toml::from_str(
             r#"
                 input = "-A INPUT -j REJECT --reject-with tcp-reset"
-                expected.value = "INPUT"
-                expected.negative = false
                 expected.name = "A"
+                expected.negative = false
+                expected.value = "INPUT"
                 remaining = " -j REJECT --reject-with tcp-reset"
             "#
         ).unwrap();
 
 
-        let res = token("-A")(&test.input);
-
-        assert_eq!(res, Ok((
-            test.remaining.as_str(), 
-            Token{
-                value: test.expected.value.as_str(),
-                name: test.expected.name.as_str(),
-                negative: test.expected.negative
-
-            })))
-
-
-
-
+        let (remaining, token) = token("-A")(&test.input).unwrap();
+        assert_eq!(remaining, test.remaining);
+        assert_eq!(toml::to_string(&test.expected).unwrap(), toml::to_string(&token).unwrap());
     }
 
     macro_rules! test_parsers {
@@ -269,11 +254,11 @@ mod tests {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 struct Token<'a> {
+    name: &'a str,
     negative: bool,
     value: &'a str,
-    name: &'a str,
 }
 
 fn remove_dash(s: &str) -> IResult<&str, &str> {
