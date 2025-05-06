@@ -1,19 +1,20 @@
-use nom::{
-    branch::alt, bytes::complete::{tag, take_until}, character::complete::space1, IResult
-};
-use nom::sequence::preceded;
 use nom::character::complete::not_line_ending;
-use nom::multi::many1;
 use nom::character::complete::space0;
+use nom::multi::many1;
+use nom::sequence::preceded;
+use nom::{
+    branch::alt,
+    bytes::complete::{tag, take_until},
+    character::complete::space1,
+    IResult,
+};
 use std::str::FromStr;
 
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParseEnumError;
 
-
-
-#[derive(Debug,PartialEq,Default)]
+#[derive(Debug, PartialEq, Default)]
 enum ActionType {
     ACCEPT,
     GOTO,
@@ -24,7 +25,7 @@ enum ActionType {
     LOG,
     NFLOG,
     #[default]
-    PASS
+    PASS,
 }
 
 impl FromStr for ActionType {
@@ -45,26 +46,68 @@ impl FromStr for ActionType {
     }
 }
 
-
-#[derive(Debug,PartialEq,Default)]
-struct ActionSetting <'a>{
+#[derive(Debug, PartialEq, Default)]
+struct ActionSetting<'a> {
     action: ActionType,
-    option: &'a str
+    option: &'a str,
 }
 
-
-#[derive(Debug,PartialEq,Default)]
-pub struct ACLRule <'a> {
+#[derive(Debug, PartialEq, Default)]
+pub struct ACLRule<'a> {
     name: String,
     action: Vec<ActionSetting<'a>>,
     action_modifiers: Vec<ActionSetting<'a>>,
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use serde_derive::Deserialize;
+
+    #[derive(Deserialize)]
+    struct TokenMock {
+        value: String,
+        negative: bool,
+        name: String,
+    }
+
+
+    #[derive(Deserialize)]
+    struct TestSuit {
+        input: String,
+        remaining: String,
+        expected: TokenMock,
+    }
+
+    #[test]
+    fn test_toml() {
+        let test: TestSuit = toml::from_str(
+            r#"
+                input = "-A INPUT -j REJECT --reject-with tcp-reset"
+                expected.value = "INPUT"
+                expected.negative = false
+                expected.name = "A"
+                remaining = " -j REJECT --reject-with tcp-reset"
+            "#
+        ).unwrap();
+
+
+        let res = token("-A")(&test.input);
+
+        assert_eq!(res, Ok((
+            test.remaining.as_str(), 
+            Token{
+                value: test.expected.value.as_str(),
+                name: test.expected.name.as_str(),
+                negative: test.expected.negative
+
+            })))
+
+
+
+
+    }
 
     macro_rules! test_parsers {
         ($func_name:ident, $cases:expr) => {
@@ -78,99 +121,213 @@ mod tests {
         };
     }
 
-    test_parsers!(test_token, [
-        ("-A INPUT -j REJECT --reject-with tcp-reset", Token{value: "INPUT", negative: false, name: "A"}, " -j REJECT --reject-with tcp-reset", token("-A")),
-        ("-A INPUT dfdf -j REJECT --reject-with tcp-reset", Token{value: "INPUT dfdf", negative: false, name: "A"}, " -j REJECT --reject-with tcp-reset", token("-A")),
-        ("-j REJECT --reject-with tcp-reset", Token{value: "REJECT", negative: false, name: "j"}, " --reject-with tcp-reset", token("-j")),    
-        ("-g MY CHAIN", Token{value: "MY CHAIN", negative: false, name: "g"}, "", token("-g")), 
-        ("--reject-with tcp-reset -", Token{value: "tcp-reset", negative: false, name: "reject-with"}, " -", token("--reject-with")), 
-        ("--reject-with tcp-reset", Token{value: "tcp-reset", negative: false, name: "reject-with"}, "", token("--reject-with")), 
-        ("--reject-with tcp-reset\n", Token{value: "tcp-reset", negative: false, name: "reject-with"}, "\n", token("--reject-with")), 
-        ("--reject-with tcp-reset !", Token{value: "tcp-reset", negative: false, name: "reject-with"}, " !", token("--reject-with")),  
-    ]);
+    test_parsers!(
+        test_token,
+        [
+            (
+                "-A INPUT -j REJECT --reject-with tcp-reset",
+                Token {
+                    value: "INPUT",
+                    negative: false,
+                    name: "A"
+                },
+                " -j REJECT --reject-with tcp-reset",
+                token("-A")
+            ),
+            (
+                "-A INPUT dfdf -j REJECT --reject-with tcp-reset",
+                Token {
+                    value: "INPUT dfdf",
+                    negative: false,
+                    name: "A"
+                },
+                " -j REJECT --reject-with tcp-reset",
+                token("-A")
+            ),
+            (
+                "-j REJECT --reject-with tcp-reset",
+                Token {
+                    value: "REJECT",
+                    negative: false,
+                    name: "j"
+                },
+                " --reject-with tcp-reset",
+                token("-j")
+            ),
+            (
+                "-g MY CHAIN",
+                Token {
+                    value: "MY CHAIN",
+                    negative: false,
+                    name: "g"
+                },
+                "",
+                token("-g")
+            ),
+            (
+                "--reject-with tcp-reset -",
+                Token {
+                    value: "tcp-reset",
+                    negative: false,
+                    name: "reject-with"
+                },
+                " -",
+                token("--reject-with")
+            ),
+            (
+                "--reject-with tcp-reset",
+                Token {
+                    value: "tcp-reset",
+                    negative: false,
+                    name: "reject-with"
+                },
+                "",
+                token("--reject-with")
+            ),
+            (
+                "--reject-with tcp-reset\n",
+                Token {
+                    value: "tcp-reset",
+                    negative: false,
+                    name: "reject-with"
+                },
+                "\n",
+                token("--reject-with")
+            ),
+            (
+                "--reject-with tcp-reset !",
+                Token {
+                    value: "tcp-reset",
+                    negative: false,
+                    name: "reject-with"
+                },
+                " !",
+                token("--reject-with")
+            ),
+        ]
+    );
 
     #[test]
     fn parser_test() {
         let arg = "-j REJECT --reject-with tcp-reset";
         let res = parser(arg);
-        assert_eq!(res, Ok(("", vec![Token{value: "REJECT", negative: false, name: "j"}, Token{value: "tcp-reset", negative: false, name: "reject-with"}])))
+        assert_eq!(
+            res,
+            Ok((
+                "",
+                vec![
+                    Token {
+                        value: "REJECT",
+                        negative: false,
+                        name: "j"
+                    },
+                    Token {
+                        value: "tcp-reset",
+                        negative: false,
+                        name: "reject-with"
+                    }
+                ]
+            ))
+        )
     }
 
     #[test]
     fn acl_1() {
         let arg = "-A INPUT -g MY_CHAIN --ctstate RELATED,ESTABLISHED";
         let res = rule(arg);
-        assert_eq!(res, Ok((" --ctstate RELATED,ESTABLISHED", ACLRule{
-            name: "INPUT".to_string(),
-            action: vec![ActionSetting{action: ActionType::GOTO, option: "MY_CHAIN"}],
-            ..Default::default()
-        })))
+        assert_eq!(
+            res,
+            Ok((
+                " --ctstate RELATED,ESTABLISHED",
+                ACLRule {
+                    name: "INPUT".to_string(),
+                    action: vec![ActionSetting {
+                        action: ActionType::GOTO,
+                        option: "MY_CHAIN"
+                    }],
+                    ..Default::default()
+                }
+            ))
+        )
     }
 
     #[test]
     fn action_test() {
-        let arg =  vec![Token{name: "j", negative: false, value: "ACCEPT"}];
+        let arg = vec![Token {
+            name: "j",
+            negative: false,
+            value: "ACCEPT",
+        }];
         let res = action(&arg);
-        assert_eq!(res, ActionSetting{action: ActionType::ACCEPT, option: ""})
+        assert_eq!(
+            res,
+            ActionSetting {
+                action: ActionType::ACCEPT,
+                option: ""
+            }
+        )
     }
 }
 
-
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 struct Token<'a> {
-    negative:  bool,
-    value:  &'a str,
-    name: &'static str
+    negative: bool,
+    value: &'a str,
+    name: &'a str,
 }
 
-fn remove_dash(s: &str) ->  IResult<&str, &str>{
+fn remove_dash(s: &str) -> IResult<&str, &str> {
     alt((tag("--"), tag("-")))(s)
-    
 }
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
     let is_next = alt((take_until(" !"), take_until(" -")));
 
     alt((is_next, not_line_ending))(s)
-  }
+}
 
-
-fn token(arg: &'static str) -> impl Fn(&str) ->  IResult<&str, Token>{
-    move |input: &str | {
+fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    move |input: &str| {
         let (input, _) = space0(input)?;
         let (input, _) = preceded(tag(arg), space1)(input)?;
         let (input, value) = until_eof(input)?;
         let (name, _) = remove_dash(arg)?;
-        
-        Ok((input, Token{negative: false, value, name}))
+
+        Ok((
+            input,
+            Token {
+                negative: false,
+                value,
+                name,
+            },
+        ))
     }
 }
 
 fn parser(input: &str) -> IResult<&str, Vec<Token>> {
-    many1(alt((
-        token("-j"), 
-        token("--reject-with"),
-        token("-g")
-    )))(input)
-  }
+    many1(alt((token("-j"), token("--reject-with"), token("-g"))))(input)
+}
 
-
-fn action<'a>(a: & Vec<Token<'a>>) -> ActionSetting<'a>{
-    let goto = a.iter().find(| &x| x.name == "g").map(| x | ActionSetting { action:  ActionType::GOTO, option: x.value});
-    let jump = a.iter().find(| &x| x.name == "j").map(
-        | x | {
-            let action_type = ActionType::from_str(x.value).unwrap_or_default();
-            ActionSetting { action: action_type, option: Default::default() }
-        });
+fn action<'a>(a: &Vec<Token<'a>>) -> ActionSetting<'a> {
+    let goto = a.iter().find(|&x| x.name == "g").map(|x| ActionSetting {
+        action: ActionType::GOTO,
+        option: x.value,
+    });
+    let jump = a.iter().find(|&x| x.name == "j").map(|x| {
+        let action_type = ActionType::from_str(x.value).unwrap_or_default();
+        ActionSetting {
+            action: action_type,
+            option: Default::default(),
+        }
+    });
 
     goto.or(jump).unwrap_or_default()
 }
 
-
-pub fn rule<'a>(s: &'a str) -> IResult<&str, ACLRule<'a>>{
+pub fn rule<'a>(s: &'a str) -> IResult<&str, ACLRule<'a>> {
     let mut rule: ACLRule = Default::default();
 
-    let (input, name) =  token("-A")(s)?;
+    let (input, name) = token("-A")(s)?;
 
     rule.name = name.value.to_string();
 
@@ -181,5 +338,4 @@ pub fn rule<'a>(s: &'a str) -> IResult<&str, ACLRule<'a>>{
     action(&res);
 
     Ok((input, rule))
-
 }
