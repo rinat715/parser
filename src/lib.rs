@@ -5,15 +5,44 @@ use nom::sequence::preceded;
 use nom::character::complete::not_line_ending;
 use nom::multi::many1;
 use nom::character::complete::space0;
+use std::str::FromStr;
+
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParseEnumError;
 
 
 
 #[derive(Debug,PartialEq,Default)]
 enum ActionType {
+    ACCEPT,
     GOTO,
     REJECT,
+    QUEUE,
+    DROP,
+    RETURN,
+    LOG,
+    NFLOG,
     #[default]
     PASS
+}
+
+impl FromStr for ActionType {
+    type Err = ParseEnumError;
+
+    fn from_str(o: &str) -> Result<Self, Self::Err> {
+        match o {
+            "ACCEPT" => Ok(Self::ACCEPT),
+            "REJECT" => Ok(Self::REJECT),
+            "DROP" => Ok(Self::DROP),
+            "QUEUE" => Ok(Self::QUEUE),
+            "RETURN" => Ok(Self::RETURN),
+            "LOG" => Ok(Self::LOG),
+            "NFLOG" => Ok(Self::NFLOG),
+
+            _ => Err(ParseEnumError),
+        }
+    }
 }
 
 
@@ -111,6 +140,13 @@ mod tests {
             ..Default::default()
         })))
     }
+
+    #[test]
+    fn action_test() {
+        let arg =  vec![Token{name: "j", negative: false, value: "ACCEPT"}];
+        let res = action(&arg);
+        assert_eq!(res, ActionSetting{action: ActionType::ACCEPT, option: ""})
+    }
 }
 
 
@@ -154,27 +190,15 @@ fn parser(input: &str) -> IResult<&str, Vec<Token>> {
 
 
 fn action<'a>(a: & Vec<Token<'a>>) -> ActionSetting<'a>{
-    let mut res: ActionSetting = Default::default();
+    let goto = a.iter().find(| &x| x.name == "g").map(| x | ActionSetting { action:  ActionType::GOTO, option: x.value});
+    let jump = a.iter().find(| &x| x.name == "j").map(
+        | x | {
+            let action_type = ActionType::from_str(x.value).unwrap_or(ActionType::PASS);
+            ActionSetting { action: action_type, option: Default::default() }
+        });
 
-    for i in a  {
-        match i.name {
-            "g" => {
-                res.action = ActionType::GOTO;
-                res.option = i.value
-            }
-            "j" => {
-                res.action = ActionType::REJECT;
-                res.option = i.value
-            }
-
-            _ => ()
-        }
-    }
-
-    return res
-
+    goto.or(jump).unwrap_or_default()
 }
-
 
 
 pub fn rule<'a>(s: &'a str) -> IResult<&str, ACLRule<'a>>{
