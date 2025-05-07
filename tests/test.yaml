@@ -1,5 +1,0 @@
-base_case:
-    $param: '-A INPUT'
-    $result:
-        value: INPUT
-        other: ''

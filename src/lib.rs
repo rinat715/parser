@@ -8,9 +8,9 @@ use nom::{
     character::complete::space1,
     IResult,
 };
-use std::str::FromStr;
 use serde_derive::Serialize;
 
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParseEnumError;
@@ -65,33 +65,32 @@ mod tests {
     use super::*;
 
     use serde_derive::Deserialize;
+    use std::env;
+    use std::env::VarError;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::path::PathBuf;
     use toml::Value;
-
-
+    use toml::Table;
 
     #[derive(Deserialize)]
     struct TestSuit {
         input: String,
         remaining: String,
         expected: Value,
+        function: String,
     }
 
-    #[test]
-    fn test_toml() {
-        let test: TestSuit = toml::from_str(
-            r#"
-                input = "-A INPUT -j REJECT --reject-with tcp-reset"
-                expected.name = "A"
-                expected.negative = false
-                expected.value = "INPUT"
-                remaining = " -j REJECT --reject-with tcp-reset"
-            "#
-        ).unwrap();
+    fn fixture_dir() -> Result<PathBuf, VarError> {
+        let path = PathBuf::new();
+        let manifest = env::var("CARGO_MANIFEST_DIR")?;
 
+        Ok(path.join(manifest).join("fixtures"))
+    }
 
-        let (remaining, token) = token("-A")(&test.input).unwrap();
-        assert_eq!(remaining, test.remaining);
-        assert_eq!(toml::to_string(&test.expected).unwrap(), toml::to_string(&token).unwrap());
+    fn read_file_to_string(path: &str, buf: &mut String) {
+        let mut f = File::open(path).unwrap();
+        f.read_to_string(buf).unwrap();
     }
 
     macro_rules! test_parsers {
@@ -104,6 +103,32 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn test_toml() {
+
+        let fixture_dir = fixture_dir().unwrap();
+        let test_file = fixture_dir.join("test.toml");
+
+        let mut buffer = String::new();
+
+        read_file_to_string(test_file.to_str().unwrap(), &mut buffer);
+
+        let tables = buffer.parse::<Table>().unwrap();
+
+        for (test_name, value) in tables {
+            println!("Run {}", test_name);
+            let test: TestSuit = value.try_into().unwrap();
+
+            let (remaining, token) = token("-A")(&test.input).unwrap();
+            assert_eq!(remaining, test.remaining);
+            assert_eq!(
+                toml::to_string(&test.expected).unwrap(),
+                toml::to_string(&token).unwrap()
+            );
+        }
+
     }
 
     test_parsers!(
