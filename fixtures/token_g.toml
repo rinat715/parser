@@ -1,0 +1,6 @@
+[test_1]
+input = "-g MY CHAIN"
+expected.value = "MY CHAIN"
+expected.negative = false
+expected.name = "g"
+remaining = ""

@@ -1,0 +1,6 @@
+[test_1]
+input = "-j REJECT --reject-with tcp-reset"
+expected.value = "REJECT"
+expected.negative = false
+expected.name = "j"
+remaining = " --reject-with tcp-reset"
