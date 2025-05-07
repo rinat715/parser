@@ -15,7 +15,7 @@ use std::str::FromStr;
 #[derive(Debug, PartialEq, Eq)]
 struct ParseEnumError;
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Default, Serialize)]
 enum ActionType {
     ACCEPT,
     GOTO,
@@ -47,17 +47,17 @@ impl FromStr for ActionType {
     }
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Default, Serialize)]
 struct ActionSetting<'a> {
     action: ActionType,
     option: &'a str,
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Default, Serialize)]
 pub struct ACLRule<'a> {
+    action_modifiers: Vec<ActionSetting<'a>>,
     name: String,
     action: Vec<ActionSetting<'a>>,
-    action_modifiers: Vec<ActionSetting<'a>>,
 }
 
 #[cfg(test)]
@@ -70,15 +70,14 @@ mod tests {
     use std::fs::File;
     use std::io::prelude::*;
     use std::path::PathBuf;
-    use toml::Value;
     use toml::Table;
+    use toml::Value;
 
     #[derive(Deserialize)]
     struct TestSuit {
         input: String,
         remaining: String,
         expected: Value,
-        function: String,
     }
 
     fn fixture_dir() -> Result<PathBuf, VarError> {
@@ -94,172 +93,72 @@ mod tests {
     }
 
     macro_rules! test_parsers {
-        ($func_name:ident, $cases:expr) => {
+        ($func_name:ident, $file:literal, $function:expr) => {
             #[test]
             fn $func_name() {
-                for (input, expected, remaining, func) in $cases {
-                    let parsed = func(input);
-                    assert_eq!(parsed, Ok((remaining, expected)));
+                let test_file = fixture_dir().unwrap().join($file);
+
+                let mut buffer = String::new();
+                read_file_to_string(test_file.to_str().unwrap(), &mut buffer);
+
+                for (test_name, value) in buffer.parse::<Table>().unwrap() {
+                    println!("Run {}", test_name);
+
+                    let test: TestSuit = value.try_into().unwrap();
+                    let (remaining, result) = $function(&test.input).unwrap();
+
+                    assert_eq!(remaining, test.remaining);
+                    assert_eq!(
+                        toml::to_string(&test.expected).unwrap(),
+                        toml::to_string(&result).unwrap()
+                    );
                 }
             }
         };
     }
 
-    #[test]
-    fn test_toml() {
+    macro_rules! test_parser_vec {
+        ($func_name:ident, $file:literal, $function:expr) => {
+            #[test]
+            fn $func_name() {
+                let test_file = fixture_dir().unwrap().join($file);
 
-        let fixture_dir = fixture_dir().unwrap();
-        let test_file = fixture_dir.join("test.toml");
+                let mut buffer = String::new();
+                read_file_to_string(test_file.to_str().unwrap(), &mut buffer);
 
-        let mut buffer = String::new();
+                for (test_name, value) in buffer.parse::<Table>().unwrap() {
+                    println!("Run {}", test_name);
 
-        read_file_to_string(test_file.to_str().unwrap(), &mut buffer);
+                    let test: TestSuit = value.try_into().unwrap();
+                    let (remaining, results) = $function(&test.input).unwrap();
+                    assert_eq!(remaining, test.remaining);
 
-        let tables = buffer.parse::<Table>().unwrap();
-
-        for (test_name, value) in tables {
-            println!("Run {}", test_name);
-            let test: TestSuit = value.try_into().unwrap();
-
-            let (remaining, token) = token("-A")(&test.input).unwrap();
-            assert_eq!(remaining, test.remaining);
-            assert_eq!(
-                toml::to_string(&test.expected).unwrap(),
-                toml::to_string(&token).unwrap()
-            );
-        }
-
+                    let mut index = 0;
+                    for inner in test.expected.as_array().unwrap() {
+                        println!("Run {}", index);
+                        assert_eq!(
+                            toml::to_string(&inner).unwrap(),
+                            toml::to_string(&results[index]).unwrap()
+                        );
+                        index += 1
+                    }
+                }
+            }
+        };
     }
 
+    test_parsers!(test_token_a, "token_a.toml", token("-A"));
+    test_parsers!(test_token_j, "token_j.toml", token("-j"));
+    test_parsers!(test_token_g, "token_g.toml", token("-g"));
     test_parsers!(
-        test_token,
-        [
-            (
-                "-A INPUT -j REJECT --reject-with tcp-reset",
-                Token {
-                    value: "INPUT",
-                    negative: false,
-                    name: "A"
-                },
-                " -j REJECT --reject-with tcp-reset",
-                token("-A")
-            ),
-            (
-                "-A INPUT dfdf -j REJECT --reject-with tcp-reset",
-                Token {
-                    value: "INPUT dfdf",
-                    negative: false,
-                    name: "A"
-                },
-                " -j REJECT --reject-with tcp-reset",
-                token("-A")
-            ),
-            (
-                "-j REJECT --reject-with tcp-reset",
-                Token {
-                    value: "REJECT",
-                    negative: false,
-                    name: "j"
-                },
-                " --reject-with tcp-reset",
-                token("-j")
-            ),
-            (
-                "-g MY CHAIN",
-                Token {
-                    value: "MY CHAIN",
-                    negative: false,
-                    name: "g"
-                },
-                "",
-                token("-g")
-            ),
-            (
-                "--reject-with tcp-reset -",
-                Token {
-                    value: "tcp-reset",
-                    negative: false,
-                    name: "reject-with"
-                },
-                " -",
-                token("--reject-with")
-            ),
-            (
-                "--reject-with tcp-reset",
-                Token {
-                    value: "tcp-reset",
-                    negative: false,
-                    name: "reject-with"
-                },
-                "",
-                token("--reject-with")
-            ),
-            (
-                "--reject-with tcp-reset\n",
-                Token {
-                    value: "tcp-reset",
-                    negative: false,
-                    name: "reject-with"
-                },
-                "\n",
-                token("--reject-with")
-            ),
-            (
-                "--reject-with tcp-reset !",
-                Token {
-                    value: "tcp-reset",
-                    negative: false,
-                    name: "reject-with"
-                },
-                " !",
-                token("--reject-with")
-            ),
-        ]
+        test_token_reject_with,
+        "token_reject_with.toml",
+        token("--reject-with")
     );
 
-    #[test]
-    fn parser_test() {
-        let arg = "-j REJECT --reject-with tcp-reset";
-        let res = parser(arg);
-        assert_eq!(
-            res,
-            Ok((
-                "",
-                vec![
-                    Token {
-                        value: "REJECT",
-                        negative: false,
-                        name: "j"
-                    },
-                    Token {
-                        value: "tcp-reset",
-                        negative: false,
-                        name: "reject-with"
-                    }
-                ]
-            ))
-        )
-    }
+    test_parser_vec!(test_parser, "parser.toml", parser);
 
-    #[test]
-    fn acl_1() {
-        let arg = "-A INPUT -g MY_CHAIN --ctstate RELATED,ESTABLISHED";
-        let res = rule(arg);
-        assert_eq!(
-            res,
-            Ok((
-                " --ctstate RELATED,ESTABLISHED",
-                ACLRule {
-                    name: "INPUT".to_string(),
-                    action: vec![ActionSetting {
-                        action: ActionType::GOTO,
-                        option: "MY_CHAIN"
-                    }],
-                    ..Default::default()
-                }
-            ))
-        )
-    }
+    test_parsers!(test_acl, "acl.toml", rule);
 
     #[test]
     fn action_test() {

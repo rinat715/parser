@@ -1,0 +1,11 @@
+[test_1]
+input = "-A INPUT -g MY_CHAIN --ctstate RELATED,ESTABLISHED"
+remaining = " --ctstate RELATED,ESTABLISHED"
+
+[test_1.expected]
+name = "INPUT"
+action_modifiers = []
+
+[[test_1.expected.action]]
+action = "GOTO"
+option = "MY_CHAIN"

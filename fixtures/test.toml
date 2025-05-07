@@ -1,8 +1,0 @@
-[test_1]
-
-function = "token(\"-A\")"
-input = "-A INPUT -j REJECT --reject-with tcp-reset"
-expected.value = "INPUT"
-expected.negative = false
-expected.name = "A"
-remaining = " -j REJECT --reject-with tcp-reset"
