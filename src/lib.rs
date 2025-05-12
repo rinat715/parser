@@ -64,94 +64,13 @@ pub struct ACLRule<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tester::*;
 
-    use serde_derive::Deserialize;
-    use std::env;
-    use std::env::VarError;
-    use std::fs::File;
-    use std::io::prelude::*;
-    use std::path::PathBuf;
-    use toml::Table;
-    use toml::Value;
-
-    #[derive(Deserialize)]
-    struct TestSuit {
-        input: String,
-        remaining: String,
-        expected: Value,
-    }
-
-    fn fixture_dir() -> Result<PathBuf, VarError> {
-        let path = PathBuf::new();
-        let manifest = env::var("CARGO_MANIFEST_DIR")?;
-
-        Ok(path.join(manifest).join("fixtures"))
-    }
-
-    fn read_file_to_string(path: &str, buf: &mut String) {
-        let mut f = File::open(path).unwrap();
-        f.read_to_string(buf).unwrap();
-    }
-
-    macro_rules! test_parsers {
-        ($func_name:ident, $file:literal, $function:expr) => {
-            #[test]
-            fn $func_name() {
-                let test_file = fixture_dir().unwrap().join($file);
-
-                let mut buffer = String::new();
-                read_file_to_string(test_file.to_str().unwrap(), &mut buffer);
-
-                for (test_name, value) in buffer.parse::<Table>().unwrap() {
-                    println!("Run {}", test_name);
-
-                    let test: TestSuit = value.try_into().unwrap();
-                    let (remaining, result) = $function(&test.input).unwrap();
-
-                    assert_eq!(remaining, test.remaining);
-                    assert_eq!(
-                        toml::to_string(&test.expected).unwrap(),
-                        toml::to_string(&result).unwrap()
-                    );
-                }
-            }
-        };
-    }
-
-    macro_rules! test_parser_vec {
-        ($func_name:ident, $file:literal, $function:expr) => {
-            #[test]
-            fn $func_name() {
-                let test_file = fixture_dir().unwrap().join($file);
-
-                let mut buffer = String::new();
-                read_file_to_string(test_file.to_str().unwrap(), &mut buffer);
-
-                for (test_name, value) in buffer.parse::<Table>().unwrap() {
-                    println!("Run {}", test_name);
-
-                    let test: TestSuit = value.try_into().unwrap();
-                    let (remaining, results) = $function(&test.input).unwrap();
-                    assert_eq!(remaining, test.remaining);
-
-                    let mut index = 0;
-                    for inner in test.expected.as_array().unwrap() {
-                        println!("Run {}", index);
-                        assert_eq!(
-                            toml::to_string(&inner).unwrap(),
-                            toml::to_string(&results[index]).unwrap()
-                        );
-                        index += 1
-                    }
-                }
-            }
-        };
-    }
-
-    test_parsers!(test_token_a, "token_a.toml", token("-A"));
-    test_parsers!(test_token_j, "token_j.toml", token("-j"));
-    test_parsers!(test_token_g, "token_g.toml", token("-g"));
-    test_parsers!(
+    
+    test_parser_struct!(test_token_a, "token_a.toml", token("-A"));
+    test_parser_struct!(test_token_j, "token_j.toml", token("-j"));
+    test_parser_struct!(test_token_g, "token_g.toml", token("-g"));
+    test_parser_struct!(
         test_token_reject_with,
         "token_reject_with.toml",
         token("--reject-with")
@@ -159,7 +78,7 @@ mod tests {
 
     test_parser_vec!(test_parser, "parser.toml", parser);
 
-    test_parsers!(test_acl, "acl.toml", rule);
+    test_parser_struct!(test_acl, "acl.toml", rule);
 
     #[test]
     fn action_test() {
