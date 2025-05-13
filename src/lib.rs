@@ -92,7 +92,6 @@ mod tests {
     }
 
 
-
     // test_parser_struct!(test_acl, "acl.toml", rule);
 
     // #[test]
