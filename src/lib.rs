@@ -91,25 +91,27 @@ mod tests {
         parser(arg)
     }
 
+    #[tester("acl.toml")]
+    fn test_rule(arg: &str) -> IResult<&str, ACLRule> {
+        rule(arg)
+    }
 
-    // test_parser_struct!(test_acl, "acl.toml", rule);
-
-    // #[test]
-    // fn action_test() {
-    //     let arg = vec![Token {
-    //         name: "j",
-    //         negative: false,
-    //         value: "ACCEPT",
-    //     }];
-    //     let res = action(&arg);
-    //     assert_eq!(
-    //         res,
-    //         ActionSetting {
-    //             action: ActionType::ACCEPT,
-    //             option: ""
-    //         }
-    //     )
-    // }
+    #[test]
+    fn action_test() {
+        let arg = vec![Token {
+            name: "j",
+            negative: false,
+            value: "ACCEPT",
+        }];
+        let res = action(&arg);
+        assert_eq!(
+            res,
+            ActionSetting {
+                action: ActionType::ACCEPT,
+                option: ""
+            }
+        )
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
