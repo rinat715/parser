@@ -67,21 +67,31 @@ mod tests {
     use tester::tester;
 
     #[tester("token_a.toml")]
-    fn test_test(arg: &str) ->  IResult<&str, Token> {
+    fn token_a(arg: &str) ->  IResult<&str, Token> {
         token("-A")(arg)
     }
 
-    
-    //test_parser_struct!(test_token_a, "token_a.toml", token("-A"));
-    // test_parser_struct!(test_token_j, "token_j.toml", token("-j"));
-    // test_parser_struct!(test_token_g, "token_g.toml", token("-g"));
-    // test_parser_struct!(
-    //     test_token_reject_with,
-    //     "token_reject_with.toml",
-    //     token("--reject-with")
-    // );
+    #[tester("token_j.toml")]
+    fn test_token_j(arg: &str) ->  IResult<&str, Token> {
+        token("-j")(arg)
+    }
 
-    // test_parser_vec!(test_parser, "parser.toml", parser);
+    #[tester("token_g.toml")]
+    fn test_token_g(arg: &str) ->  IResult<&str, Token> {
+        token("-g")(arg)
+    }
+
+    #[tester("token_reject_with.toml")]
+    fn token_reject_with(arg: &str) ->  IResult<&str, Token> {
+        token("--reject-with")(arg)
+    }
+
+    #[tester("parser.toml")]
+    fn test_parser(arg: &str) -> IResult<&str, Vec<Token>> {
+        parser(arg)
+    }
+
+
 
     // test_parser_struct!(test_acl, "acl.toml", rule);
 

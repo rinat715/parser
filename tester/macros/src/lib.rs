@@ -12,17 +12,6 @@ use std::path::PathBuf;
 use toml::Table;
 use toml::Value;
 
-// struct ExpectedValue {
-//     value: String
-// }
-
-// impl ExpectedValue {
-//     fn get_str(self) -> &str {
-//         self.value.as_str()
-
-//     }
-
-// }
 
 #[derive(Deserialize)]
 struct TestSuit {
@@ -67,28 +56,30 @@ pub fn tester(
         let input = test.input.as_str();
 
         let test_func = &func.sig.ident;
-        let test_name_ident = syn::Ident::new(&test_name, Span::call_site());
+        let mut f = test_func.to_string();
+        f.insert(0, '_');
+        f.insert_str(0, test_name.as_str());
+        let test_name_ident = syn::Ident::new(f.as_str(), Span::call_site());
 
         if test.expected.is_array() {
             let expected= test.expected.as_array().unwrap().iter().map(|x|toml::to_string(x).unwrap());
             let test = quote! {
                 #[test]
                 fn #test_name_ident() {
-                    let (remaining, result) = #test_func(#input).unwrap();
+                    let (remaining, results) = #test_func(#input).unwrap();
                     assert_eq!(#remaining, remaining);
                     let mut index = 0;
                     for inner in vec![#(#expected),*] {
                         println!("Run {}", index);
                         assert_eq!(
-                            toml::to_string(&inner).unwrap(),
+                            inner,
                             toml::to_string(&results[index]).unwrap()
                         );
+                        index += 1
                     } 
                 }
             };
             vec.push(test);
-
-
         } else {
             let expected_str = toml::to_string(&test.expected).unwrap();
             let expected = expected_str.as_str();
