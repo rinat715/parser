@@ -63,7 +63,7 @@ fn fixture_dir() -> Result<PathBuf, VarError> {
     let path = PathBuf::new();
     let manifest = env::var("CARGO_MANIFEST_DIR")?;
 
-    Ok(path.join(manifest).join("fixtures"))
+    Ok(path.join(manifest).join("tests").join("fixtures"))
 }
 
 fn read_file_to_string(path: &str, buf: &mut String) {

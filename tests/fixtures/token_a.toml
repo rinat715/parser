@@ -1,6 +1,6 @@
 [test_1]
 input = "-A INPUT -j REJECT --reject-with tcp-reset"
-expected.value = "INPUT"
+expected.value = "INPUT dfdff"
 expected.negative = false
 expected.name = "A"
 remaining = " -j REJECT --reject-with tcp-reset"
