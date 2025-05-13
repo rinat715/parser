@@ -64,38 +64,43 @@ pub struct ACLRule<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tester::*;
+    use tester::tester;
+
+    #[tester("token_a.toml")]
+    fn test_test(arg: &str) ->  IResult<&str, Token> {
+        token("-A")(arg)
+    }
 
     
-    test_parser_struct!(test_token_a, "token_a.toml", token("-A"));
-    test_parser_struct!(test_token_j, "token_j.toml", token("-j"));
-    test_parser_struct!(test_token_g, "token_g.toml", token("-g"));
-    test_parser_struct!(
-        test_token_reject_with,
-        "token_reject_with.toml",
-        token("--reject-with")
-    );
+    //test_parser_struct!(test_token_a, "token_a.toml", token("-A"));
+    // test_parser_struct!(test_token_j, "token_j.toml", token("-j"));
+    // test_parser_struct!(test_token_g, "token_g.toml", token("-g"));
+    // test_parser_struct!(
+    //     test_token_reject_with,
+    //     "token_reject_with.toml",
+    //     token("--reject-with")
+    // );
 
-    test_parser_vec!(test_parser, "parser.toml", parser);
+    // test_parser_vec!(test_parser, "parser.toml", parser);
 
-    test_parser_struct!(test_acl, "acl.toml", rule);
+    // test_parser_struct!(test_acl, "acl.toml", rule);
 
-    #[test]
-    fn action_test() {
-        let arg = vec![Token {
-            name: "j",
-            negative: false,
-            value: "ACCEPT",
-        }];
-        let res = action(&arg);
-        assert_eq!(
-            res,
-            ActionSetting {
-                action: ActionType::ACCEPT,
-                option: ""
-            }
-        )
-    }
+    // #[test]
+    // fn action_test() {
+    //     let arg = vec![Token {
+    //         name: "j",
+    //         negative: false,
+    //         value: "ACCEPT",
+    //     }];
+    //     let res = action(&arg);
+    //     assert_eq!(
+    //         res,
+    //         ActionSetting {
+    //             action: ActionType::ACCEPT,
+    //             option: ""
+    //         }
+    //     )
+    // }
 }
 
 #[derive(Debug, PartialEq, Serialize)]

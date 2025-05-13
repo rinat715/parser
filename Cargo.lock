@@ -25,6 +25,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_derive",
+ "syn",
+ "toml",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -119,9 +131,7 @@ dependencies = [
 name = "tester"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_derive",
- "toml",
+ "macros",
 ]
 
 [[package]]
