@@ -1,7 +1,9 @@
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
+use nom::combinator::map;
 use nom::multi::many1;
 use nom::sequence::preceded;
+use nom::Parser;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
@@ -10,7 +12,6 @@ use nom::{
 };
 use serde_derive::Serialize;
 
-use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParseEnumError;
@@ -29,24 +30,6 @@ enum ActionType {
     PASS,
 }
 
-impl FromStr for ActionType {
-    type Err = ParseEnumError;
-
-    fn from_str(o: &str) -> Result<Self, Self::Err> {
-        match o {
-            "ACCEPT" => Ok(Self::ACCEPT),
-            "REJECT" => Ok(Self::REJECT),
-            "DROP" => Ok(Self::DROP),
-            "QUEUE" => Ok(Self::QUEUE),
-            "RETURN" => Ok(Self::RETURN),
-            "LOG" => Ok(Self::LOG),
-            "NFLOG" => Ok(Self::NFLOG),
-
-            _ => Err(ParseEnumError),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Default, Serialize)]
 struct ActionSetting<'a> {
     action: ActionType,
@@ -60,65 +43,14 @@ pub struct ACLRule<'a> {
     action: Vec<ActionSetting<'a>>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use tester::tester;
 
-    #[tester("token_a.toml")]
-    fn token_a(arg: &str) ->  IResult<&str, Token> {
-        token("-A")(arg)
-    }
+    test_parser!(test_token_a, "token_a.toml", token("-A"));
 
-    #[tester("token_j.toml")]
-    fn test_token_j(arg: &str) ->  IResult<&str, Token> {
-        token("-j")(arg)
-    }
-
-    #[tester("token_g.toml")]
-    fn test_token_g(arg: &str) ->  IResult<&str, Token> {
-        token("-g")(arg)
-    }
-
-    #[tester("token_reject_with.toml")]
-    fn token_reject_with(arg: &str) ->  IResult<&str, Token> {
-        token("--reject-with")(arg)
-    }
-
-    #[tester("parser.toml")]
-    fn test_parser(arg: &str) -> IResult<&str, Vec<Token>> {
-        parser(arg)
-    }
-
-    #[tester("acl.toml")]
-    fn test_rule(arg: &str) -> IResult<&str, ACLRule> {
-        rule(arg)
-    }
-
-    #[test]
-    fn action_test() {
-        let arg = vec![Token {
-            name: "j",
-            negative: false,
-            value: "ACCEPT",
-        }];
-        let res = action(&arg);
-        assert_eq!(
-            res,
-            ActionSetting {
-                action: ActionType::ACCEPT,
-                option: ""
-            }
-        )
-    }
-}
-
-#[derive(Debug, PartialEq, Serialize)]
-struct Token<'a> {
-    name: &'a str,
-    negative: bool,
-    value: &'a str,
+    test_parser_struct!(test_token_g, "token_g.toml", get_goto);
 }
 
 fn remove_dash(s: &str) -> IResult<&str, &str> {
@@ -131,56 +63,43 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| {
         let (input, _) = space0(input)?;
         let (input, _) = preceded(tag(arg), space1)(input)?;
-        let (input, value) = until_eof(input)?;
-        let (name, _) = remove_dash(arg)?;
-
-        Ok((
-            input,
-            Token {
-                negative: false,
-                value,
-                name,
-            },
-        ))
+        until_eof(input)
     }
 }
 
-fn parser(input: &str) -> IResult<&str, Vec<Token>> {
-    many1(alt((token("-j"), token("--reject-with"), token("-g"))))(input)
+struct Name<'a>(&'a str);
+
+fn get_name(input: &str) -> IResult<&str, Name> {
+    let mut parser = map(token("-A"), |s: &str| Name(s));
+    parser.parse(input)
 }
 
-fn action<'a>(a: &Vec<Token<'a>>) -> ActionSetting<'a> {
-    let goto = a.iter().find(|&x| x.name == "g").map(|x| ActionSetting {
+fn get_goto(input: &str) -> IResult<&str, ActionSetting> {
+    let mut parser = map(token("-g"), |s: &str| ActionSetting {
         action: ActionType::GOTO,
-        option: x.value,
+        option: s,
     });
-    let jump = a.iter().find(|&x| x.name == "j").map(|x| {
-        let action_type = ActionType::from_str(x.value).unwrap_or_default();
-        ActionSetting {
-            action: action_type,
-            option: Default::default(),
-        }
-    });
-
-    goto.or(jump).unwrap_or_default()
+    parser.parse(input)
 }
 
-pub fn rule<'a>(s: &'a str) -> IResult<&str, ACLRule<'a>> {
-    let mut rule: ACLRule = Default::default();
 
-    let (input, name) = token("-A")(s)?;
-
-    rule.name = name.value.to_string();
-
-    let (input, res) = parser(input)?;
-
-    rule.action = vec![action(&res)];
-
-    action(&res);
-
-    Ok((input, rule))
+enum ResultParser {
+    Name,
+    ActionSetting
 }
+
+
+
+// pub fn rule<'a>(input: &'a str) -> IResult<&str, ACLRule<'a>> {
+//     let mut rule: ACLRule = Default::default();
+
+
+//     //let mut parser: IResult<&str, Vec<ResultParser>> =many1(alt((get_name, get_goto)))(input);
+
+
+//     Ok((input, rule))
+// }

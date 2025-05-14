@@ -1,6 +1,7 @@
 [test_1]
-input = "-g MY CHAIN"
-expected.value = "MY CHAIN"
-expected.negative = false
-expected.name = "g"
+input = "-g MY_CHAIN"
 remaining = ""
+
+[test_1.expected]
+action = "GOTO"
+option = "MY_CHAIN"
