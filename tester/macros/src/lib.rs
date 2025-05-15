@@ -41,7 +41,7 @@ impl TestSuit {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|x| toml::to_string(x).unwrap());
+                .map(|x| toml::to_string(x).unwrap()); // TODO обрабтывать ошибку
 
             quote! {
                     let mut index = 0;
@@ -56,11 +56,23 @@ impl TestSuit {
 
             }
         } else {
-            let expected_str = toml::to_string(&self.expected).unwrap();
-            let expected = expected_str.as_str();
-            quote! {
-                assert_eq!(#expected,  toml::to_string(&result).unwrap());
+
+            if self.expected.is_str()
+             {
+                let expected = self.expected.as_str(); // TODO обрабтывать ошибку
+                quote! {
+                    assert_eq!(#expected,  result);
+                }
+
+            } else {
+                let expected_str = toml::to_string(&self.expected).unwrap(); // TODO обрабтывать ошибку
+                let expected = expected_str.as_str();
+                quote! {
+                    assert_eq!(#expected,  toml::to_string(&result).unwrap());
+                }
             }
+
+
         }
     }
     fn name(&self, func: &str, name: &str) -> syn::Ident {

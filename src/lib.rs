@@ -48,9 +48,17 @@ mod tests {
     use super::*;
     use tester::tester;
 
-    test_parser!(test_token_a, "token_a.toml", token("-A"));
+    #[tester("token_a.toml")]
+    fn token_a(arg: &str) -> IResult<&str, &str> {
+        token("-A")(arg)
+    }
 
-    test_parser_struct!(test_token_g, "token_g.toml", get_goto);
+
+    #[tester("token_g.toml")]
+    fn token_goto(arg: &str) -> IResult<&str, ActionSetting> {
+    get_goto(arg)
+    }
+
 }
 
 fn remove_dash(s: &str) -> IResult<&str, &str> {
