@@ -11,7 +11,7 @@ use nom::{
     IResult,
 };
 use serde_derive::Serialize;
-
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParseEnumError;
@@ -28,6 +28,24 @@ enum ActionType {
     NFLOG,
     #[default]
     PASS,
+}
+
+impl FromStr for ActionType {
+    type Err = ParseEnumError;
+
+    fn from_str(o: &str) -> Result<Self, Self::Err> {
+        match o {
+            "ACCEPT" => Ok(Self::ACCEPT),
+            "REJECT" => Ok(Self::REJECT),
+            "DROP" => Ok(Self::DROP),
+            "QUEUE" => Ok(Self::QUEUE),
+            "RETURN" => Ok(Self::RETURN),
+            "LOG" => Ok(Self::LOG),
+            "NFLOG" => Ok(Self::NFLOG),
+
+            _ => Err(ParseEnumError),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Default, Serialize)]
@@ -53,12 +71,10 @@ mod tests {
         token("-A")(arg)
     }
 
-
     #[tester("token_g.toml")]
     fn token_goto(arg: &str) -> IResult<&str, ActionSetting> {
-    get_goto(arg)
+        get_goto(arg)
     }
-
 }
 
 fn remove_dash(s: &str) -> IResult<&str, &str> {
@@ -79,6 +95,17 @@ fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     }
 }
 
+fn get_action_modifier(arg: &'static str) -> impl Fn(&str) -> IResult<&str, ActionSetting> {
+    move |input: &str| {
+        let mut parser = map(token(arg), |s: &str| ActionSetting {
+            action: ActionType::GOTO,
+            option: s,
+        });
+        parser.parse(input)
+    }
+}
+
+
 struct Name<'a>(&'a str);
 
 fn get_name(input: &str) -> IResult<&str, Name> {
@@ -94,20 +121,25 @@ fn get_goto(input: &str) -> IResult<&str, ActionSetting> {
     parser.parse(input)
 }
 
+fn get_action_type(input: &str) -> IResult<&str, ActionType> {
+    let mut parser = map(token("-j"), |s: &str| ActionType::from_str(s).unwrap_or_default());
+    parser.parse(input)
+}
+
+fn get_action_value(input: &str) -> IResult<&str, ActionType> {
+    let mut parser = map(token("-j"), |s: &str| ActionType::from_str(s).unwrap_or_default());
+    parser.parse(input)
+}
 
 enum ResultParser {
     Name,
-    ActionSetting
+    ActionSetting,
 }
-
-
 
 // pub fn rule<'a>(input: &'a str) -> IResult<&str, ACLRule<'a>> {
 //     let mut rule: ACLRule = Default::default();
 
-
 //     //let mut parser: IResult<&str, Vec<ResultParser>> =many1(alt((get_name, get_goto)))(input);
-
 
 //     Ok((input, rule))
 // }
