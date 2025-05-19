@@ -14,6 +14,7 @@ pub enum ActionType {
     RETURN,
     LOG,
     NFLOG,
+    JUMP,
     #[default]
     PASS,
 }
@@ -24,13 +25,12 @@ impl FromStr for ActionType {
     fn from_str(o: &str) -> Result<Self, Self::Err> {
         match o {
             "ACCEPT" => Ok(Self::ACCEPT),
-            "GOTO" => Ok(Self::GOTO),
-            "REJECT" => Ok(Self::REJECT),
             "DROP" => Ok(Self::DROP),
-            "QUEUE" => Ok(Self::QUEUE),
-            "RETURN" => Ok(Self::RETURN),
             "LOG" => Ok(Self::LOG),
             "NFLOG" => Ok(Self::NFLOG),
+            "QUEUE" => Ok(Self::QUEUE),
+            "REJECT" => Ok(Self::REJECT),
+            "RETURN" => Ok(Self::RETURN),
 
             _ => Err(ParseEnumError),
         }

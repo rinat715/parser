@@ -13,6 +13,7 @@ use nom::{
 };
 mod domain;
 use domain as d;
+use std::f64::consts::E;
 use std::str::FromStr;
 
 #[cfg(test)]
@@ -55,27 +56,57 @@ fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
 //         parser.parse(input)
 //     }
 // }
+struct ActionSettingBuilder<'a>{
+    user_chains: Vec<&'a str>
+}
+impl<'a> ActionSettingBuilder<'a> {
+    fn build(&self, action: &'a str, option: &'a str) -> ActionSetting {
+        if let Ok(action) = d::ActionType::from_str(action) {
+            match action {
+                d::ActionType::ACCEPT |
+                d::ActionType::DROP |
+                d::ActionType::QUEUE|
+                d::ActionType::RETURN |
+                d::ActionType::LOG => return ActionSetting::new(action, ""),
+                d::ActionType::REJECT => return ActionSetting::new(action, option),
+
+                _ => !todo!()
+            }
+        }
+
+        if self.user_chains.contains(&action) {
+            return ActionSetting::new(d::ActionType::JUMP, action)
+        }
+
+        ActionSetting::new(domain::ActionType::PASS, "")
+        
+    }
+}
+
+
 
 
 struct Name<'a>(&'a str);
+struct Action<'a>(&'a str);
+struct Option<'a>(&'a str);
 
-fn get_name(input: &str) -> IResult<&str, Name> {
+fn name(input: &str) -> IResult<&str, Name> {
     let mut parser = map(token("-A"), |s: &str| Name(s));
     parser.parse(input)
 }
 
-fn get_goto(input: &str) -> IResult<&str, ActionSetting> {
+fn goto(input: &str) -> IResult<&str, ActionSetting> {
     let mut parser = map(token("-g"), |s: &str| ActionSetting::new(d::ActionType::GOTO, s));
     parser.parse(input)
 }
 
-fn get_action_type(input: &str) -> IResult<&str, d::ActionType> {
-    let mut parser = map(token("-j"), |s: &str| d::ActionType::from_str(s).unwrap_or_default());
+fn jump(input: &str) -> IResult<&str, Action> {
+    let mut parser = map(token("-j"), |s: &str| Action(s));
     parser.parse(input)
 }
 
-fn get_action_value(input: &str) -> IResult<&str, d::ActionType> {
-    let mut parser = map(token("-j"), |s: &str| d::ActionType::from_str(s).unwrap_or_default());
+fn reject_with(input: &str) -> IResult<&str, Option> {
+    let mut parser = map(token("-reject-with"), |s: &str| Option(s));
     parser.parse(input)
 }
 
