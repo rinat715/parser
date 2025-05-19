@@ -1,3 +1,4 @@
+use domain::ActionSetting;
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
 use nom::combinator::map;
@@ -10,56 +11,9 @@ use nom::{
     character::complete::space1,
     IResult,
 };
-use serde_derive::Serialize;
+mod domain;
+use domain as d;
 use std::str::FromStr;
-
-#[derive(Debug, PartialEq, Eq)]
-struct ParseEnumError;
-
-#[derive(Debug, PartialEq, Default, Serialize)]
-enum ActionType {
-    ACCEPT,
-    GOTO,
-    REJECT,
-    QUEUE,
-    DROP,
-    RETURN,
-    LOG,
-    NFLOG,
-    #[default]
-    PASS,
-}
-
-impl FromStr for ActionType {
-    type Err = ParseEnumError;
-
-    fn from_str(o: &str) -> Result<Self, Self::Err> {
-        match o {
-            "ACCEPT" => Ok(Self::ACCEPT),
-            "REJECT" => Ok(Self::REJECT),
-            "DROP" => Ok(Self::DROP),
-            "QUEUE" => Ok(Self::QUEUE),
-            "RETURN" => Ok(Self::RETURN),
-            "LOG" => Ok(Self::LOG),
-            "NFLOG" => Ok(Self::NFLOG),
-
-            _ => Err(ParseEnumError),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Default, Serialize)]
-struct ActionSetting<'a> {
-    action: ActionType,
-    option: &'a str,
-}
-
-#[derive(Debug, PartialEq, Default, Serialize)]
-pub struct ACLRule<'a> {
-    action_modifiers: Vec<ActionSetting<'a>>,
-    name: String,
-    action: Vec<ActionSetting<'a>>,
-}
 
 #[cfg(test)]
 mod tests {
@@ -72,7 +26,7 @@ mod tests {
     }
 
     #[tester("token_g.toml")]
-    fn token_goto(arg: &str) -> IResult<&str, ActionSetting> {
+    fn token_goto(arg: &str) -> IResult<&str, domain::ActionSetting> {
         get_goto(arg)
     }
 }
@@ -95,15 +49,12 @@ fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     }
 }
 
-fn get_action_modifier(arg: &'static str) -> impl Fn(&str) -> IResult<&str, ActionSetting> {
-    move |input: &str| {
-        let mut parser = map(token(arg), |s: &str| ActionSetting {
-            action: ActionType::GOTO,
-            option: s,
-        });
-        parser.parse(input)
-    }
-}
+// fn get_action_modifier(arg: &'static str) -> impl Fn(&str) -> IResult<&str, domain::ActionSetting> {
+//     move |input: &str| {
+//         let mut parser = map(token(arg), |s: &str| domain::ActionSetting ;
+//         parser.parse(input)
+//     }
+// }
 
 
 struct Name<'a>(&'a str);
@@ -114,20 +65,17 @@ fn get_name(input: &str) -> IResult<&str, Name> {
 }
 
 fn get_goto(input: &str) -> IResult<&str, ActionSetting> {
-    let mut parser = map(token("-g"), |s: &str| ActionSetting {
-        action: ActionType::GOTO,
-        option: s,
-    });
+    let mut parser = map(token("-g"), |s: &str| ActionSetting::new(d::ActionType::GOTO, s));
     parser.parse(input)
 }
 
-fn get_action_type(input: &str) -> IResult<&str, ActionType> {
-    let mut parser = map(token("-j"), |s: &str| ActionType::from_str(s).unwrap_or_default());
+fn get_action_type(input: &str) -> IResult<&str, d::ActionType> {
+    let mut parser = map(token("-j"), |s: &str| d::ActionType::from_str(s).unwrap_or_default());
     parser.parse(input)
 }
 
-fn get_action_value(input: &str) -> IResult<&str, ActionType> {
-    let mut parser = map(token("-j"), |s: &str| ActionType::from_str(s).unwrap_or_default());
+fn get_action_value(input: &str) -> IResult<&str, d::ActionType> {
+    let mut parser = map(token("-j"), |s: &str| d::ActionType::from_str(s).unwrap_or_default());
     parser.parse(input)
 }
 
