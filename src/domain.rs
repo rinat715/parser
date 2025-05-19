@@ -31,6 +31,8 @@ impl FromStr for ActionType {
             "QUEUE" => Ok(Self::QUEUE),
             "REJECT" => Ok(Self::REJECT),
             "RETURN" => Ok(Self::RETURN),
+            "GOTO" => Ok(Self::GOTO),
+            "JUMP" => Ok(Self::JUMP),
 
             _ => Err(ParseEnumError),
         }
