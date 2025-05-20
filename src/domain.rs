@@ -2,7 +2,7 @@ use serde_derive::Serialize;
 use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct ParseEnumError;
+pub struct ParseEnumError; // TODO нормальное название 
 
 #[derive(Debug, PartialEq, Default, Serialize)]
 pub enum ActionType {
@@ -56,4 +56,10 @@ pub struct ACLRule<'a> {
     action_modifiers: Vec<ActionSetting<'a>>,
     name: &'a str,
     action: Vec<ActionSetting<'a>>,
+}
+
+impl<'a> ACLRule<'a> {
+    pub fn new(action: ActionSetting<'a>, name: &'a str) -> Self {
+        Self {action: vec![action], name: name, action_modifiers: vec![]}
+    }
 }
