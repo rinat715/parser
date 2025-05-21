@@ -176,7 +176,18 @@ fn by_name(name: &'static str) -> impl FnMut(&&Token) -> bool {
 }
 
 fn parser(input: &str) -> IResult<&str, Vec<Token>> {
-    many1(alt((token("-j"), token("--reject-with"), token("-g"))))(input)
+    many1(alt((
+        token("-j"),
+        token("--reject-with"),
+        token("-g"),
+        token("--log-level"),
+        token("--log-prefix"),
+        token("--log-tcp-sequence"),
+        token("--tcp-options"),
+        token("--log-ip-options"),
+        token("--log-uid"),
+        token("-p"),
+    )))(input)
 }
 
 pub fn rule<'a>(s: &'a str, user_chains: &'a Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
