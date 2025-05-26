@@ -7,7 +7,9 @@ use nom::{
     bytes::complete::{tag, take_until},
     character::complete::space1,
     IResult,
+    combinator::opt,
 };
+use serde::de::value;
 use serde_derive::Serialize;
 
 use std::str::FromStr;
@@ -49,7 +51,7 @@ mod tests {
         let arg = vec![Token {
             name: "j",
             negative: false,
-            value: "ACCEPT",
+            value: Some("ACCEPT"),
         }];
         let user = vec![];
         let res = ActionSettingBuilder::new(&user).build(&arg);
@@ -61,7 +63,7 @@ mod tests {
         let arg = vec![Token {
             name: "g",
             negative: false,
-            value: "MY CHAIN",
+            value: Some("MY CHAIN"),
         }];
         let user = vec![];
         let res = ActionSettingBuilder::new(&user).build(&arg);
@@ -73,7 +75,7 @@ mod tests {
         let arg = vec![Token {
             name: "j",
             negative: false,
-            value: "MY CHAIN",
+            value: Some("MY CHAIN"),
         }];
         let user = vec!["MY CHAIN"];
         let res = ActionSettingBuilder::new(&user).build(&arg);
@@ -85,7 +87,7 @@ mod tests {
 struct Token<'a> {
     name: &'static str,
     negative: bool,
-    value: &'a str,
+    value: Option<&'a str>,
 }
 
 fn remove_dash(s: &str) -> IResult<&str, &str> {
@@ -102,7 +104,7 @@ fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
         let (input, _) = space0(input)?;
         let (input, _) = preceded(tag(arg), space1)(input)?;
-        let (input, value) = until_eof(input)?;
+        let (input, value) = opt(until_eof)(input)?;
         let (name, _) = remove_dash(arg)?;
 
         Ok((
@@ -156,7 +158,7 @@ impl<'a> ActionSettingBuilder<'a> {
     }
 
     fn get_value(&self, name: &'static str, a: &Vec<Token<'a>>) -> Option<&'a str> {
-        a.iter().find(by_name(name)).map(|option| option.value)
+        a.iter().find(by_name(name)).map(|option| option.value).and_then(|value | value)
     }
 
     fn build(&self, a: &Vec<Token<'a>>) -> d::ActionSetting<'a> {
@@ -201,5 +203,5 @@ pub fn rule<'a>(s: &'a str, user_chains: &'a Vec<&'a str>) -> IResult<&'a str, d
 
     
 
-    Ok((input, d::ACLRule::new(action, normalized_action, name.value)))
+    Ok((input, d::ACLRule::new(action, normalized_action, name.value.unwrap())))
 }
