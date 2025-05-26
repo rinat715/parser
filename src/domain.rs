@@ -1,5 +1,25 @@
 use serde_derive::Serialize;
 use std::str::FromStr;
+use serde::{ Serialize, Serializer, ser::SerializeSeq};
+
+
+
+fn ser_vec_options<S, T>(values: &Vec<Option<T>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: Serialize,
+{
+    let mut seq = serializer.serialize_seq(Some(values.len()))?;
+    for v in values {
+        match v {
+            Some(v) => seq.serialize_element(v)?,
+            None => seq.serialize_element("")?,
+        }
+    }
+    seq.end()
+}
+
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnumError; // TODO нормальное название 
@@ -48,10 +68,10 @@ pub enum NormalizedAction {
     RETURN 
 }
 
-impl TryFrom<ActionType> for NormalizedAction {
+impl TryFrom<&ActionType> for NormalizedAction {
     type Error = ParseEnumError; // TODO 
 
-    fn try_from(action_type: ActionType) -> Result<Self, Self::Error> {
+    fn try_from(action_type: &ActionType) -> Result<Self, Self::Error> {
         match action_type {
             ActionType::ACCEPT => Ok(Self::PERMIT),
             ActionType::DROP |
@@ -78,7 +98,14 @@ impl<'a> ActionSetting<'a> {
     pub fn new(action: ActionType, option: &'a str) -> Self {
         Self {action: action, option: option}
     }
+    
+    pub fn normalized_action(&self) -> Result<NormalizedAction, ParseEnumError>  {
+        NormalizedAction::try_from(&self.action)
+        
+    }
 }
+
+
 
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -86,11 +113,12 @@ pub struct ACLRule<'a> {
     action_modifiers: Vec<ActionSetting<'a>>,
     name: &'a str,
     action: Vec<ActionSetting<'a>>,
-    normalized_action:  Vec<NormalizedAction>
+    #[serde(serialize_with = "ser_vec_options")]
+    normalized_action:  Vec<Option<NormalizedAction>>
 }
 
 impl<'a> ACLRule<'a> {
-    pub fn new(action: ActionSetting<'a>, normalized_action: NormalizedAction,  name: &'a str) -> Self {
+    pub fn new(action: ActionSetting<'a>, normalized_action: Option<NormalizedAction>,  name: &'a str) -> Self {
         Self {action: vec![action], normalized_action: vec![normalized_action], name: name, action_modifiers: vec![]}
     }
 }
