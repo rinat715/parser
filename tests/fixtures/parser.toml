@@ -1,5 +1,5 @@
 [test_1]
-input = "-j REJECT --reject-with tcp-reset"
+input = " -j REJECT --reject-with tcp-reset"
 remaining = ""
 
 [[test_1.expected]]
@@ -13,7 +13,7 @@ negative = false
 name = "reject-with"
 
 [test_2]
-input = "-p TCP --log-ip-options --log-tcp-sequence --log-tcp-options --log-level 7"
+input = " -p TCP --log-ip-options --log-tcp-sequence --log-tcp-options --log-level 7"
 remaining = ""
 
 [[test_2.expected]]

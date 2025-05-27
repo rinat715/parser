@@ -22,7 +22,7 @@ mod tests {
 
     #[tester("token_a.toml")]
     fn token_a(arg: &str) -> IResult<&str, Token> {
-        token("-A")(arg)
+        token3("-A")(arg)
     }
 
     #[tester("token_j.toml")]
@@ -106,8 +106,7 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
 
 fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
-        let (input, _) = space0(input)?;
-        let (input, value) = preceded(tuple((tag(arg), space1)), opt(until_eof))(input)?;
+        let (input, value) = preceded(tuple((space1, tag(arg), space1)), opt(until_eof))(input)?;
         let (name, _) = remove_dash(arg)?;
 
         Ok((
@@ -123,8 +122,24 @@ fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
 
 fn token2(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
-        let (input, _) = space0(input)?;
+        let (input, _) = space1(input)?;
         let (input, value) = value(Option::None, tag(arg))(input)?;
+        let (name, _) = remove_dash(arg)?;
+
+        Ok((
+            input,
+            Token {
+                negative: false,
+                value,
+                name,
+            },
+        ))
+    }
+}
+
+fn token3(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    move |input: &str| {
+        let (input, value) = preceded(tuple((tag(arg), space1)), opt(until_eof))(input)?;
         let (name, _) = remove_dash(arg)?;
 
         Ok((
@@ -217,7 +232,7 @@ fn parser(input: &str) -> IResult<&str, Vec<Token>> {
 }
 
 pub fn rule<'a>(s: &'a str, user_chains: &'a Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let (input, name) = token("-A")(s)?;
+    let (input, name) = token3("-A")(s)?;
 
     let (input, tokens) = parser(input)?;
 
