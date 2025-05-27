@@ -1,6 +1,8 @@
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
+use nom::combinator::map_parser;
 use nom::multi::many1;
+use nom::sequence::separated_pair;
 use nom::sequence::{preceded, tuple};
 use nom::Parser;
 use nom::{
@@ -90,13 +92,13 @@ mod tests {
 
 #[derive(Debug, PartialEq, Serialize, Default)]
 struct Token<'a> {
-    name: &'static str,
+    name: &'a str,
     negative: bool,
     value: Option<&'a str>,
 }
 
 impl<'a> Token<'a> {
-    fn new(name: &'static str, value: Option<&'a str>, negative: bool) -> Self {
+    fn new(name: &'a str, value: Option<&'a str>, negative: bool) -> Self {
         Self {
             name: name,
             negative: negative,
@@ -105,31 +107,31 @@ impl<'a> Token<'a> {
     }
 }
 
-fn remove_dash(s: &str) -> &str {
-    let (name, _) = alt((tag::<&str, &str, nom::error::Error<&str>>("--"), tag("-")))(s).unwrap();
-    name
-}
-
 fn until_eof(s: &str) -> IResult<&str, &str> {
     let is_next = alt((take_until(" !"), take_until(" -")));
 
     alt((is_next, not_line_ending))(s)
 }
 
+fn tag_(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| tag(arg).parse(input)
+}
+
 fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    let name = remove_dash(arg);
     move |input: &str| {
-        let mut parser = map(tag(arg), |_| Token::new(name, Option::None, false));
+        let name_parser = map(alt((tag("--"), tag("-"))), |name| {
+            Token::new(name, Option::None, false)
+        });
+        let mut parser = map_parser(tag_(arg), name_parser);
         parser.parse(input)
     }
 }
 
 fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    let name = remove_dash(arg);
     move |input: &str| {
         let mut parser = map(
-            preceded(tuple((tag(arg), space1)), until_eof),
-            |value: &str| Token::new(name, Option::Some(value), false),
+            separated_pair(tag_(arg), space1, until_eof),
+            |(name, value)| Token::new(name, Option::Some(value), false),
         );
         parser.parse(input)
     }
