@@ -2,11 +2,12 @@ use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
 use nom::multi::many1;
 use nom::sequence::{preceded, tuple};
+use nom::Parser;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::space1,
-    combinator::{map_parser, opt, value},
+    combinator::{map, opt, value},
     IResult,
 };
 use serde_derive::Serialize;
@@ -87,15 +88,26 @@ mod tests {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Default)]
 struct Token<'a> {
     name: &'static str,
     negative: bool,
     value: Option<&'a str>,
 }
 
-fn remove_dash(s: &str) -> IResult<&str, &str> {
-    alt((tag("--"), tag("-")))(s)
+impl<'a> Token<'a> {
+    fn new(name: &'static str, value: Option<&'a str>, negative: bool) -> Self {
+        Self {
+            name: name,
+            negative: negative,
+            value: value,
+        }
+    }
+}
+
+fn remove_dash(s: &str) -> &str {
+    let (name, _) = alt((tag::<&str, &str, nom::error::Error<&str>>("--"), tag("-")))(s).unwrap();
+    name
 }
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
@@ -104,55 +116,43 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    move |input: &str| {
-        let (input, value) = preceded(tuple((space1, tag(arg), space1)), opt(until_eof))(input)?;
-        let (name, _) = remove_dash(arg)?;
+fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, ()> {
+    move |input: &str| value((), tag(arg)).parse(input)
+}
 
-        Ok((
-            input,
-            Token {
-                negative: false,
-                value,
-                name,
-            },
-        ))
+fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| preceded(tuple((tag(arg), space1)), until_eof).parse(input)
+}
+
+fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    let name = remove_dash(arg);
+    move |input: &str| {
+        let mut parser = map(preceded(space1, tag_value(arg)), |value: &str| {
+            Token::new(name, Option::Some(value), false)
+        });
+        parser.parse(input)
     }
 }
 
 fn token2(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    let name = remove_dash(arg);
     move |input: &str| {
-        let (input, _) = space1(input)?;
-        let (input, value) = value(Option::None, tag(arg))(input)?;
-        let (name, _) = remove_dash(arg)?;
-
-        Ok((
-            input,
-            Token {
-                negative: false,
-                value,
-                name,
-            },
-        ))
+        let mut parser = map(preceded(space1, is_tag(arg)), |()| {
+            Token::new(name, Option::None, false)
+        });
+        parser.parse(input)
     }
 }
 
 fn token3(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    let name = remove_dash(arg);
     move |input: &str| {
-        let (input, value) = preceded(tuple((tag(arg), space1)), opt(until_eof))(input)?;
-        let (name, _) = remove_dash(arg)?;
-
-        Ok((
-            input,
-            Token {
-                negative: false,
-                value,
-                name,
-            },
-        ))
+        let mut parser = map(tag_value(arg), |value: &str| {
+            Token::new(name, Option::Some(value), false)
+        });
+        parser.parse(input)
     }
 }
-
 
 struct ActionSettingBuilder<'a> {
     user_chains: &'a Vec<&'a str>,
