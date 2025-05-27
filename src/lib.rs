@@ -42,7 +42,7 @@ mod tests {
 
     #[tester("token_log.toml")]
     fn token_log(arg: &str) -> IResult<&str, Token> {
-        token("--log-ip-options")(arg)
+        token2("--log-ip-options")(arg)
     }
 
     #[tester("parser.toml")]
@@ -107,10 +107,7 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
 fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
         let (input, _) = space0(input)?;
-        let (input, value) = alt((
-            preceded(tuple((tag(arg), space1)), opt(until_eof)),
-            value(Option::None, tag(arg)),
-        ))(input)?;
+        let (input, value) = preceded(tuple((tag(arg), space1)), opt(until_eof))(input)?;
         let (name, _) = remove_dash(arg)?;
 
         Ok((
@@ -123,6 +120,24 @@ fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
         ))
     }
 }
+
+fn token2(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    move |input: &str| {
+        let (input, _) = space0(input)?;
+        let (input, value) = value(Option::None, tag(arg))(input)?;
+        let (name, _) = remove_dash(arg)?;
+
+        Ok((
+            input,
+            Token {
+                negative: false,
+                value,
+                name,
+            },
+        ))
+    }
+}
+
 
 struct ActionSettingBuilder<'a> {
     user_chains: &'a Vec<&'a str>,
@@ -192,11 +207,11 @@ fn parser(input: &str) -> IResult<&str, Vec<Token>> {
         token("--reject-with"),
         token("-g"),
         token("--log-level"),
-        token("--log-prefix"),
-        token("--log-tcp-sequence"),
-        token("--log-tcp-options"),
-        token("--log-ip-options"),
-        token("--log-uid"),
+        token2("--log-prefix"),
+        token2("--log-tcp-sequence"),
+        token2("--log-tcp-options"),
+        token2("--log-ip-options"),
+        token2("--log-uid"),
         token("-p"),
     )))(input)
 }
