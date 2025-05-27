@@ -1,15 +1,14 @@
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
 use nom::multi::many1;
-use nom::sequence::preceded;
+use nom::sequence::{preceded, tuple};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::space1,
+    combinator::{map_parser, opt, value},
     IResult,
-    combinator::opt,
 };
-use serde::de::value;
 use serde_derive::Serialize;
 
 use std::str::FromStr;
@@ -39,6 +38,11 @@ mod tests {
     #[tester("token_reject_with.toml")]
     fn token_reject_with(arg: &str) -> IResult<&str, Token> {
         token("--reject-with")(arg)
+    }
+
+    #[tester("token_log.toml")]
+    fn token_log(arg: &str) -> IResult<&str, Token> {
+        token("--log-ip-options")(arg)
     }
 
     #[tester("parser.toml")]
@@ -103,8 +107,10 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
 fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
         let (input, _) = space0(input)?;
-        let (input, _) = preceded(tag(arg), space1)(input)?;
-        let (input, value) = opt(until_eof)(input)?;
+        let (input, value) = alt((
+            preceded(tuple((tag(arg), space1)), opt(until_eof)),
+            value(Option::None, tag(arg)),
+        ))(input)?;
         let (name, _) = remove_dash(arg)?;
 
         Ok((
@@ -158,7 +164,10 @@ impl<'a> ActionSettingBuilder<'a> {
     }
 
     fn get_value(&self, name: &'static str, a: &Vec<Token<'a>>) -> Option<&'a str> {
-        a.iter().find(by_name(name)).map(|option| option.value).and_then(|value | value)
+        a.iter()
+            .find(by_name(name))
+            .map(|option| option.value)
+            .and_then(|value| value)
     }
 
     fn build(&self, a: &Vec<Token<'a>>) -> d::ActionSetting<'a> {
@@ -185,7 +194,7 @@ fn parser(input: &str) -> IResult<&str, Vec<Token>> {
         token("--log-level"),
         token("--log-prefix"),
         token("--log-tcp-sequence"),
-        token("--tcp-options"),
+        token("--log-tcp-options"),
         token("--log-ip-options"),
         token("--log-uid"),
         token("-p"),
@@ -201,7 +210,8 @@ pub fn rule<'a>(s: &'a str, user_chains: &'a Vec<&'a str>) -> IResult<&'a str, d
 
     let normalized_action = action.normalized_action().ok();
 
-    
-
-    Ok((input, d::ACLRule::new(action, normalized_action, name.value.unwrap())))
+    Ok((
+        input,
+        d::ACLRule::new(action, normalized_action, name.value.unwrap()),
+    ))
 }

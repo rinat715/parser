@@ -11,3 +11,29 @@ name = "j"
 value = "tcp-reset"
 negative = false
 name = "reject-with"
+
+[test_2]
+input = "-p TCP --log-ip-options --log-tcp-sequence --log-tcp-options --log-level 7"
+remaining = ""
+
+[[test_2.expected]]
+value = "TCP"
+negative = false
+name = "p"
+
+[[test_2.expected]]
+negative = false
+name = "log-ip-options"
+
+[[test_2.expected]]
+negative = false
+name = "log-tcp-sequence"
+
+[[test_2.expected]]
+negative = false
+name = "log-tcp-options"
+
+[[test_2.expected]]
+negative = false
+name = "log-level"
+value = "7"

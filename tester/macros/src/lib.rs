@@ -31,7 +31,7 @@ impl TestSuit {
         let remaining = self.remaining.as_str();
 
         quote! {
-            assert_eq!(#remaining, remaining);
+            assert_eq!(#remaining, remaining, "wrong remaining {} {}", #remaining, remaining);
         }
     }
     fn expected(&self) -> proc_macro2::TokenStream {
@@ -49,7 +49,8 @@ impl TestSuit {
                         println!("Run {}", index);
                         assert_eq!(
                             inner,
-                            toml::to_string(&result[index]).unwrap()
+                            toml::to_string(&result[index]).unwrap(),
+                            "wrong expected {} {}", inner, toml::to_string(&result[index]).unwrap()
                         );
                         index += 1
                 }
@@ -61,14 +62,14 @@ impl TestSuit {
              {
                 let expected = self.expected.as_str(); // TODO обрабтывать ошибку
                 quote! {
-                    assert_eq!(#expected,  result);
+                    assert_eq!(#expected,  result, "wrong expected {} {}", #expected, result);
                 }
 
             } else {
                 let expected_str = toml::to_string(&self.expected).unwrap(); // TODO обрабтывать ошибку
                 let expected = expected_str.as_str();
                 quote! {
-                    assert_eq!(#expected,  toml::to_string(&result).unwrap());
+                    assert_eq!(#expected,  toml::to_string(&result).unwrap(), "wrong expected {} {}", #expected, toml::to_string(&result).unwrap());
                 }
             }
 
