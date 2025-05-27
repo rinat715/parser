@@ -23,27 +23,27 @@ mod tests {
 
     #[tester("token_a.toml")]
     fn token_a(arg: &str) -> IResult<&str, Token> {
-        token3("-A")(arg)
+        rule_name("-A")(arg)
     }
 
     #[tester("token_j.toml")]
     fn test_token_j(arg: &str) -> IResult<&str, Token> {
-        token("-j")(arg)
+        token_with_value("-j")(arg)
     }
 
     #[tester("token_g.toml")]
     fn test_token_g(arg: &str) -> IResult<&str, Token> {
-        token("-g")(arg)
+        token_with_value("-g")(arg)
     }
 
     #[tester("token_reject_with.toml")]
     fn token_reject_with(arg: &str) -> IResult<&str, Token> {
-        token("--reject-with")(arg)
+        token_with_value("--reject-with")(arg)
     }
 
     #[tester("token_log.toml")]
     fn token_log(arg: &str) -> IResult<&str, Token> {
-        token2("--log-ip-options")(arg)
+        token("--log-ip-options")(arg)
     }
 
     #[tester("parser.toml")]
@@ -116,42 +116,38 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, ()> {
-    move |input: &str| value((), tag(arg)).parse(input)
+fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    let name = remove_dash(arg);
+    move |input: &str| {
+        let mut parser = map(tag(arg), |_| Token::new(name, Option::None, false));
+        parser.parse(input)
+    }
 }
 
-fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded(tuple((tag(arg), space1)), until_eof).parse(input)
+fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    let name = remove_dash(arg);
+    move |input: &str| {
+        let mut parser = map(
+            preceded(tuple((tag(arg), space1)), until_eof),
+            |value: &str| Token::new(name, Option::Some(value), false),
+        );
+        parser.parse(input)
+    }
+}
+
+fn token_with_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    move |input: &str| preceded(space1, tag_value(arg)).parse(input)
 }
 
 fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    let name = remove_dash(arg);
     move |input: &str| {
-        let mut parser = map(preceded(space1, tag_value(arg)), |value: &str| {
-            Token::new(name, Option::Some(value), false)
-        });
+        let mut parser = preceded(space1, is_tag(arg));
         parser.parse(input)
     }
 }
 
-fn token2(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    let name = remove_dash(arg);
-    move |input: &str| {
-        let mut parser = map(preceded(space1, is_tag(arg)), |()| {
-            Token::new(name, Option::None, false)
-        });
-        parser.parse(input)
-    }
-}
-
-fn token3(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    let name = remove_dash(arg);
-    move |input: &str| {
-        let mut parser = map(tag_value(arg), |value: &str| {
-            Token::new(name, Option::Some(value), false)
-        });
-        parser.parse(input)
-    }
+fn rule_name(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    move |input: &str| tag_value(arg).parse(input)
 }
 
 struct ActionSettingBuilder<'a> {
@@ -218,21 +214,21 @@ fn by_name(name: &'static str) -> impl FnMut(&&Token) -> bool {
 
 fn parser(input: &str) -> IResult<&str, Vec<Token>> {
     many1(alt((
-        token("-j"),
-        token("--reject-with"),
-        token("-g"),
-        token("--log-level"),
-        token2("--log-prefix"),
-        token2("--log-tcp-sequence"),
-        token2("--log-tcp-options"),
-        token2("--log-ip-options"),
-        token2("--log-uid"),
-        token("-p"),
+        token_with_value("-j"),
+        token_with_value("--reject-with"),
+        token_with_value("-g"),
+        token_with_value("--log-level"),
+        token("--log-prefix"),
+        token("--log-tcp-sequence"),
+        token("--log-tcp-options"),
+        token("--log-ip-options"),
+        token("--log-uid"),
+        token_with_value("-p"),
     )))(input)
 }
 
 pub fn rule<'a>(s: &'a str, user_chains: &'a Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let (input, name) = token3("-A")(s)?;
+    let (input, name) = rule_name("-A")(s)?;
 
     let (input, tokens) = parser(input)?;
 
