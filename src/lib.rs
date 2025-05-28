@@ -1,3 +1,4 @@
+use domain::ActionSetting;
 use nom::character::complete::alpha1;
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
@@ -13,6 +14,7 @@ use nom::{
     combinator::{iterator, map, map_res, value, verify},
     IResult,
 };
+use serde::de::value;
 use serde_derive::Serialize;
 use std::collections::HashMap;
 
@@ -20,9 +22,8 @@ use std::str::FromStr;
 mod domain;
 use domain as d;
 
-
 #[derive(Debug, PartialEq, Eq)]
-pub struct ParseEnum2Error; // TODO нормальное название 
+pub struct ParseEnum2Error; // TODO нормальное название
 
 #[cfg(test)]
 mod tests {
@@ -33,10 +34,7 @@ mod tests {
     fn test_parser_new() {
         let (remaining, result) = parser(" -j REJECT").unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(
-            result.get("jump"),
-            Some(&Result::ActionType(d::ActionType::REJECT))
-        );
+        assert_eq!(result.get("jump"), Some(&"REJECT"));
     }
 }
 
@@ -46,44 +44,14 @@ enum Result<'a> {
     ActionSetting(d::ActionSetting<'a>),
 }
 
-impl<'a> TryFrom<Result<'a>> for d::ActionType {
-    type Error = ParseEnum2Error;
-    
-    fn try_from(other: Result) -> std::result::Result<Self, ParseEnum2Error> {
-        match other {
-            Result::ActionType(value) => Ok(value),
-            _ => Err(ParseEnum2Error),
-        }
-    }
-}
-
-impl<'a> TryFrom<Result<'a>> for d::ActionSetting<'a> {
-    type Error = ParseEnum2Error;
-    
-    fn try_from(other: &Result<'a>) -> std::result::Result<Self, ParseEnum2Error> {
-        match other {
-            Result::ActionSetting(value) => Ok(value),
-            _ => Err(ParseEnum2Error),
-        }
-    }
-}
-
-fn action<'a>(input: &str) -> IResult<&str, Result> {
+fn action<'a>(input: &str) -> IResult<&str, &str> {
     let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
-    map(
-        preceded(tuple((space1, tag("-j"), space1)), parser),
-        |value| Result::ActionType(d::ActionType::from_str(value).unwrap()),
-    )
-    .parse(input)
+    preceded(tuple((space1, tag("-j"), space1)), parser).parse(input)
 }
 
-fn jump<'a>(input: &str) -> IResult<&str, Result> {
+fn jump<'a>(input: &str) -> IResult<&str, &str> {
     let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
-    map(
-        preceded(tuple((space1, tag("-j"), space1)), parser),
-        |value| Result::ActionType(d::ActionType::from_str(value).unwrap()),
-    )
-    .parse(input)
+    preceded(tuple((space1, tag("-j"), space1)), parser).parse(input)
 }
 
 fn name<'a>(input: &str) -> IResult<&str, &str> {
@@ -94,49 +62,23 @@ fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| preceded(tuple((space1, tag(arg), space1)), until_eof).parse(input)
 }
 
-fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, ()> {
-    move |input: &str| value((), preceded(space1, tag(arg))).parse(input)
+fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| value("", preceded(space1, tag(arg))).parse(input)
 }
 
-fn parser(input: &str) -> IResult<&str, HashMap<&str, Result>> {
+fn parser(input: &str) -> IResult<&str, HashMap<&str, &str>> {
     let (remain, res) = many1(alt((
         map(action, |value| ("jump", value)),
-        map(tag_value("-g"), |value| {
-            (
-                "goto",
-                Result::ActionSetting(d::ActionSetting::new(d::ActionType::GOTO, value)),
-            )
+        map(tag_value("-g"), |value| ("goto", value)),
+        map(tag_value("--log-level"), |value| ("log_level", value)),
+        map(tag_value("--log-prefix"), |value| ("log-prefix", value)),
+        map(is_tag("--log-tcp-sequence"), |value| {
+            ("log-tcp-sequence", value)
         }),
-        map(tag_value("--log-level"), |value| {
-            (
-                "log_level",
-                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogLevel, value)),
-            )
+        map(is_tag("--log-tcp-options"), |value| {
+            ("log-tcp-options", value)
         }),
-        map(tag_value("--log-prefix"), |value| {
-            (
-                "log-prefix",
-                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogPrefix, value)),
-            )
-        }),
-        map(is_tag("--log-tcp-sequence"), |()| {
-            (
-                "log-tcp-sequence",
-                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogTCPSequence, "")),
-            )
-        }),
-        map(is_tag("--log-tcp-options"), |()| {
-            (
-                "log-tcp-options",
-                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogTCPOptions, "")),
-            )
-        }),
-        map(is_tag("--log-ip-option"), |()| {
-            (
-                "log-ip-option",
-                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogIPOptions, "")),
-            )
-        }),
+        map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)),
     )))
     .parse(input)?;
     Ok((remain, res.into_iter().collect()))
@@ -148,20 +90,20 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-
 pub fn rule<'a>(s: &'a str) -> IResult<&'a str, d::ACLRule<'a>> {
     let (input, name) = name(s)?;
 
     let (input, tokens) = parser(input)?;
 
-    let action: domain::ActionSetting<'a> =    tokens.get("goto").unwrap().try_into().unwrap();
-
-
+    let action = tokens
+        .get("goto")
+        .map(|value| d::ActionSetting::new(d::ActionType::GOTO, value))
+        .or(tokens
+            .get("jump")
+            .map(|value| d::ActionSetting::new(d::ActionType::from_str(value).unwrap(), "")))
+        .unwrap_or(ActionSetting::new(domain::ActionType::PASS, ""));
 
     let normalized_action = action.normalized_action().ok();
 
-    Ok((
-        input,
-        d::ACLRule::new(action, normalized_action, name.value.unwrap()),
-    ))
+    Ok((input, d::ACLRule::new(action, normalized_action, name)))
 }
