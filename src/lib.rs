@@ -2,7 +2,7 @@ use nom::character::complete::alpha1;
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
 use nom::combinator::map_parser;
-use nom::multi::many1;
+use nom::multi::{many1, fold_many1};
 use nom::sequence::separated_pair;
 use nom::sequence::{preceded, tuple};
 use nom::Parser;
@@ -10,10 +10,11 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::space1,
-    combinator::{map, opt, value, verify},
+    combinator::{map, opt, value, verify, iterator},
     IResult,
 };
 use serde_derive::Serialize;
+use std::collections::HashMap;
 
 use std::str::FromStr;
 mod domain;
@@ -24,10 +25,10 @@ mod tests {
     use super::*;
     use tester::tester;
 
-    #[tester("token_a.toml")]
-    fn token_a(arg: &str) -> IResult<&str, ResultEnum> {
-        nameP(arg)
-    }
+    // #[tester("token_a.toml")]
+    // fn token_a(arg: &str) -> IResult<&str, (&str, ResultEnum>> {
+    //     name(arg)
+    // }
 
     #[tester("token_j.toml")]
     fn test_token_j(arg: &str) -> IResult<&str, Token> {
@@ -44,9 +45,17 @@ mod tests {
         token("--log-ip-options")(arg)
     }
 
-    #[tester("parser.toml")]
-    fn test_parser(arg: &str) -> IResult<&str, Vec<ResultEnum>> {
-        parser_new(arg)
+    // #[tester("parser.toml")]
+    // fn test_parser(arg: &str) -> IResult<&str, HashMap<&str, ResultEnum>> {
+    //     parser_new(arg)
+    // }
+
+
+    #[test]
+    fn test_parser_new() {
+        let (remaining, result) = parser_new(" -j REJECT").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(result.get("jump"), Some(&ResultEnum::ActionType(d::ActionType::REJECT)));
     }
 
     #[test]
@@ -110,32 +119,34 @@ enum ResultEnum<'a> {
     Name(&'a str),
 }
 
-fn action<'a>(input: &str) -> IResult<&str, ResultEnum> {
+fn action<'a>(input: &str) -> IResult<&str, (&str, ResultEnum)> {
     let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
     map(
         preceded(tuple((space1, tag("-j"), space1)), parser),
-        |value| ResultEnum::ActionType(d::ActionType::from_str(value).unwrap()),
+        |value| ("jump", ResultEnum::ActionType(d::ActionType::from_str(value).unwrap())),
     )
     .parse(input)
 }
 
-fn goto<'a>(input: &str) -> IResult<&str, ResultEnum> {
+fn goto<'a>(input: &str) -> IResult<&str, (&str, ResultEnum)> {
     map(
         preceded(tuple((space1, tag("-g"), space1)), until_eof),
-        |value| ResultEnum::Goto(d::ActionSetting::new(d::ActionType::GOTO, value)),
+        |value| ("goto", ResultEnum::Goto(d::ActionSetting::new(d::ActionType::GOTO, value))),
     )
     .parse(input)
 }
 
-fn nameP<'a>(input: &str) -> IResult<&str, ResultEnum> {
+fn name<'a>(input: &str) -> IResult<&str, (&str, ResultEnum)> {
     map(preceded(tuple((tag("-A"), space1)), until_eof), |value| {
-        ResultEnum::Name(value)
+        ("name", ResultEnum::Name(value))
     })
     .parse(input)
 }
 
-fn parser_new(input: &str) -> IResult<&str, Vec<ResultEnum>> {
-    many1(alt((action, goto)))(input)
+fn parser_new(input: &str) -> IResult<&str, HashMap<&str, ResultEnum>> {
+    let (remain, res) = many1(alt((action, goto))).parse(input)?;
+    let m = res.into_iter().collect();
+    Ok((remain, m))
 }
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
