@@ -37,6 +37,12 @@ pub enum ActionType {
     JUMP,
     #[default]
     PASS,
+    LogLevel,
+    LogPrefix,
+    LogTCPSequence,
+    LogTCPOptions,
+    LogIPOptions,
+    LogUID
 }
 
 impl FromStr for ActionType {
@@ -53,6 +59,12 @@ impl FromStr for ActionType {
             "RETURN" => Ok(Self::RETURN),
             "GOTO" => Ok(Self::GOTO),
             "JUMP" => Ok(Self::JUMP),
+            "log-level" => Ok(Self::LogLevel),
+            "log-prefix" => Ok(Self::LogPrefix),
+            "log-tcp-sequence" => Ok(Self::LogTCPSequence),
+            "log-tcp-options" => Ok(Self::LogTCPOptions),
+            "log-ip-options" => Ok(Self::LogIPOptions),
+            "log-uid" => Ok(Self::LogUID),
 
             _ => Err(ParseEnumError),
         }

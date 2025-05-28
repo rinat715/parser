@@ -2,7 +2,7 @@ use nom::character::complete::alpha1;
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
 use nom::combinator::map_parser;
-use nom::multi::{many1, fold_many1};
+use nom::multi::{fold_many1, many1};
 use nom::sequence::separated_pair;
 use nom::sequence::{preceded, tuple};
 use nom::Parser;
@@ -10,7 +10,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::space1,
-    combinator::{map, map_res, value, verify, iterator},
+    combinator::{iterator, map, map_res, value, verify},
     IResult,
 };
 use serde_derive::Serialize;
@@ -20,137 +20,126 @@ use std::str::FromStr;
 mod domain;
 use domain as d;
 
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseEnum2Error; // TODO нормальное название 
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tester::tester;
 
-    // #[tester("token_a.toml")]
-    // fn token_a(arg: &str) -> IResult<&str, (&str, ResultEnum>> {
-    //     name(arg)
-    // }
-
-    #[tester("token_j.toml")]
-    fn test_token_j(arg: &str) -> IResult<&str, Token> {
-        token_with_value("-j")(arg)
-    }
-
-    #[tester("token_reject_with.toml")]
-    fn token_reject_with(arg: &str) -> IResult<&str, Token> {
-        token_with_value("--reject-with")(arg)
-    }
-
-    #[tester("token_log.toml")]
-    fn token_log(arg: &str) -> IResult<&str, Token> {
-        token("--log-ip-options")(arg)
-    }
-
-    // #[tester("parser.toml")]
-    // fn test_parser(arg: &str) -> IResult<&str, HashMap<&str, ResultEnum>> {
-    //     parser_new(arg)
-    // }
-
-
     #[test]
     fn test_parser_new() {
-        let (remaining, result) = parser_new(" -j REJECT").unwrap();
+        let (remaining, result) = parser(" -j REJECT").unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(result.get("jump"), Some(&ResultEnum::ActionType(d::ActionType::REJECT)));
-    }
-
-    #[test]
-    fn action_test() {
-        let arg = vec![Token {
-            name: "j",
-            negative: false,
-            value: Some("ACCEPT"),
-        }];
-        let user = vec![];
-        let res = ActionSettingBuilder::new(&user).build(&arg);
-        assert_eq!(res, d::ActionSetting::new(d::ActionType::ACCEPT, ""))
-    }
-
-    #[test]
-    fn action_goto_test() {
-        let arg = vec![Token {
-            name: "g",
-            negative: false,
-            value: Some("MY CHAIN"),
-        }];
-        let user = vec![];
-        let res = ActionSettingBuilder::new(&user).build(&arg);
-        assert_eq!(res, d::ActionSetting::new(d::ActionType::GOTO, "MY CHAIN"))
-    }
-
-    #[test]
-    fn action_jump_test() {
-        let arg = vec![Token {
-            name: "j",
-            negative: false,
-            value: Some("MY CHAIN"),
-        }];
-        let user = vec!["MY CHAIN"];
-        let res = ActionSettingBuilder::new(&user).build(&arg);
-        assert_eq!(res, d::ActionSetting::new(d::ActionType::JUMP, "MY CHAIN"))
-    }
-}
-
-#[derive(Debug, PartialEq, Serialize, Default)]
-struct Token<'a> {
-    name: &'a str,
-    negative: bool,
-    value: Option<&'a str>,
-}
-
-impl<'a> Token<'a> {
-    fn new(name: &'a str, value: Option<&'a str>, negative: bool) -> Self {
-        Self {
-            name: name,
-            negative: negative,
-            value: value,
-        }
+        assert_eq!(
+            result.get("jump"),
+            Some(&Result::ActionType(d::ActionType::REJECT))
+        );
     }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
-enum ResultEnum<'a> {
+enum Result<'a> {
     ActionType(d::ActionType),
-    Goto(d::ActionSetting<'a>),
-    Name(&'a str),
+    ActionSetting(d::ActionSetting<'a>),
 }
 
-fn action<'a>(input: &str) -> IResult<&str, ResultEnum> {
+impl<'a> TryFrom<Result<'a>> for d::ActionType {
+    type Error = ParseEnum2Error;
+    
+    fn try_from(other: Result) -> std::result::Result<Self, ParseEnum2Error> {
+        match other {
+            Result::ActionType(value) => Ok(value),
+            _ => Err(ParseEnum2Error),
+        }
+    }
+}
+
+impl<'a> TryFrom<Result<'a>> for d::ActionSetting<'a> {
+    type Error = ParseEnum2Error;
+    
+    fn try_from(other: &Result<'a>) -> std::result::Result<Self, ParseEnum2Error> {
+        match other {
+            Result::ActionSetting(value) => Ok(value),
+            _ => Err(ParseEnum2Error),
+        }
+    }
+}
+
+fn action<'a>(input: &str) -> IResult<&str, Result> {
     let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
     map(
         preceded(tuple((space1, tag("-j"), space1)), parser),
-        |value| ResultEnum::ActionType(d::ActionType::from_str(value).unwrap()),
+        |value| Result::ActionType(d::ActionType::from_str(value).unwrap()),
     )
     .parse(input)
 }
 
-fn goto<'a>(input: &str) -> IResult<&str, ResultEnum> {
+fn jump<'a>(input: &str) -> IResult<&str, Result> {
+    let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
     map(
-        preceded(tuple((space1, tag("-g"), space1)), until_eof),
-        |value| ResultEnum::Goto(d::ActionSetting::new(d::ActionType::GOTO, value)),
+        preceded(tuple((space1, tag("-j"), space1)), parser),
+        |value| Result::ActionType(d::ActionType::from_str(value).unwrap()),
     )
     .parse(input)
 }
 
-fn name<'a>(input: &str) -> IResult<&str, ResultEnum> {
-    map(preceded(tuple((tag("-A"), space1)), until_eof), |value| {
-        ResultEnum::Name(value)
-    })
-    .parse(input)
+fn name<'a>(input: &str) -> IResult<&str, &str> {
+    preceded(tuple((tag("-A"), space1)), until_eof).parse(input)
 }
 
-fn parser_new(input: &str) -> IResult<&str, HashMap<&str, ResultEnum>> {
+fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| preceded(tuple((space1, tag(arg), space1)), until_eof).parse(input)
+}
+
+fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, ()> {
+    move |input: &str| value((), preceded(space1, tag(arg))).parse(input)
+}
+
+fn parser(input: &str) -> IResult<&str, HashMap<&str, Result>> {
     let (remain, res) = many1(alt((
         map(action, |value| ("jump", value)),
-        map(goto, |value| ("goto", value)))
-    )
-    ).parse(input)?;
-    let m = res.into_iter().collect();
-    Ok((remain, m))
+        map(tag_value("-g"), |value| {
+            (
+                "goto",
+                Result::ActionSetting(d::ActionSetting::new(d::ActionType::GOTO, value)),
+            )
+        }),
+        map(tag_value("--log-level"), |value| {
+            (
+                "log_level",
+                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogLevel, value)),
+            )
+        }),
+        map(tag_value("--log-prefix"), |value| {
+            (
+                "log-prefix",
+                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogPrefix, value)),
+            )
+        }),
+        map(is_tag("--log-tcp-sequence"), |()| {
+            (
+                "log-tcp-sequence",
+                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogTCPSequence, "")),
+            )
+        }),
+        map(is_tag("--log-tcp-options"), |()| {
+            (
+                "log-tcp-options",
+                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogTCPOptions, "")),
+            )
+        }),
+        map(is_tag("--log-ip-option"), |()| {
+            (
+                "log-ip-option",
+                Result::ActionSetting(d::ActionSetting::new(d::ActionType::LogIPOptions, "")),
+            )
+        }),
+    )))
+    .parse(input)?;
+    Ok((remain, res.into_iter().collect()))
 }
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
@@ -159,128 +148,15 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn tag_(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| tag(arg).parse(input)
-}
 
-fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    move |input: &str| {
-        let name_parser = map(alt((tag("--"), tag("-"))), |name| {
-            Token::new(name, Option::None, false)
-        });
-        let mut parser = map_parser(tag_(arg), name_parser);
-        parser.parse(input)
-    }
-}
-
-fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    move |input: &str| {
-        let mut parser = map(
-            separated_pair(tag_(arg), space1, until_eof),
-            |(name, value)| Token::new(name, Option::Some(value), false),
-        );
-        parser.parse(input)
-    }
-}
-
-fn token_with_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    move |input: &str| preceded(space1, tag_value(arg)).parse(input)
-}
-
-fn token(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    move |input: &str| {
-        let mut parser = preceded(space1, is_tag(arg));
-        parser.parse(input)
-    }
-}
-
-fn rule_name(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
-    move |input: &str| tag_value(arg).parse(input)
-}
-
-struct ActionSettingBuilder<'a> {
-    user_chains: &'a Vec<&'a str>,
-}
-impl<'a> ActionSettingBuilder<'a> {
-    fn new(user_chains: &'a Vec<&str>) -> Self {
-        Self { user_chains }
-    }
-
-    fn action(&self, action: &'a str, option: &'a str) -> d::ActionSetting<'a> {
-        d::ActionType::from_str(action)
-            .map(|action_type| {
-                match action_type {
-                    d::ActionType::ACCEPT
-                    | d::ActionType::DROP
-                    | d::ActionType::QUEUE
-                    | d::ActionType::RETURN
-                    | d::ActionType::LOG
-                    | d::ActionType::NFLOG
-                    | d::ActionType::PASS => d::ActionSetting::new(action_type, ""),
-
-                    d::ActionType::REJECT | d::ActionType::GOTO => {
-                        if option == "" {
-                            panic!() // TODO
-                        }
-                        return d::ActionSetting::new(action_type, option);
-                    }
-
-                    d::ActionType::JUMP => panic!(), // TODO,
-                }
-            })
-            .ok()
-            .or_else(|| {
-                self.user_chains
-                    .contains(&action)
-                    .then_some(d::ActionSetting::new(d::ActionType::JUMP, action))
-            })
-            .unwrap_or(d::ActionSetting::new(domain::ActionType::PASS, ""))
-    }
-
-    fn get_value(&self, name: &'static str, a: &Vec<Token<'a>>) -> Option<&'a str> {
-        a.iter()
-            .find(by_name(name))
-            .map(|option| option.value)
-            .and_then(|value| value)
-    }
-
-    fn build(&self, a: &Vec<Token<'a>>) -> d::ActionSetting<'a> {
-        self.get_value("g", a)
-            .map(|value| self.action("GOTO", value))
-            .unwrap_or_else(|| {
-                self.action(
-                    self.get_value("j", a).unwrap_or_default(),
-                    self.get_value("reject-with", a).unwrap_or_default(),
-                )
-            })
-    }
-}
-
-fn by_name(name: &'static str) -> impl FnMut(&&Token) -> bool {
-    move |item| item.name == name
-}
-
-fn parser(input: &str) -> IResult<&str, Vec<Token>> {
-    many1(alt((
-        token_with_value("-j"),
-        token_with_value("--reject-with"),
-        token_with_value("-g"),
-        token_with_value("--log-level"),
-        token("--log-prefix"),
-        token("--log-tcp-sequence"),
-        token("--log-tcp-options"),
-        token("--log-ip-options"),
-        token("--log-uid"),
-        token_with_value("-p"),
-    )))(input)
-}
-
-pub fn rule<'a>(s: &'a str, user_chains: &'a Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let (input, name) = rule_name("-A")(s)?;
+pub fn rule<'a>(s: &'a str) -> IResult<&'a str, d::ACLRule<'a>> {
+    let (input, name) = name(s)?;
 
     let (input, tokens) = parser(input)?;
 
-    let action = ActionSettingBuilder::new(user_chains).build(&tokens);
+    let action: domain::ActionSetting<'a> =    tokens.get("goto").unwrap().try_into().unwrap();
+
+
 
     let normalized_action = action.normalized_action().ok();
 
