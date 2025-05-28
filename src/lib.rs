@@ -10,7 +10,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::space1,
-    combinator::{map, opt, value, verify, iterator},
+    combinator::{map, map_res, value, verify, iterator},
     IResult,
 };
 use serde_derive::Serialize;
@@ -119,32 +119,36 @@ enum ResultEnum<'a> {
     Name(&'a str),
 }
 
-fn action<'a>(input: &str) -> IResult<&str, (&str, ResultEnum)> {
+fn action<'a>(input: &str) -> IResult<&str, ResultEnum> {
     let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
     map(
         preceded(tuple((space1, tag("-j"), space1)), parser),
-        |value| ("jump", ResultEnum::ActionType(d::ActionType::from_str(value).unwrap())),
+        |value| ResultEnum::ActionType(d::ActionType::from_str(value).unwrap()),
     )
     .parse(input)
 }
 
-fn goto<'a>(input: &str) -> IResult<&str, (&str, ResultEnum)> {
+fn goto<'a>(input: &str) -> IResult<&str, ResultEnum> {
     map(
         preceded(tuple((space1, tag("-g"), space1)), until_eof),
-        |value| ("goto", ResultEnum::Goto(d::ActionSetting::new(d::ActionType::GOTO, value))),
+        |value| ResultEnum::Goto(d::ActionSetting::new(d::ActionType::GOTO, value)),
     )
     .parse(input)
 }
 
-fn name<'a>(input: &str) -> IResult<&str, (&str, ResultEnum)> {
+fn name<'a>(input: &str) -> IResult<&str, ResultEnum> {
     map(preceded(tuple((tag("-A"), space1)), until_eof), |value| {
-        ("name", ResultEnum::Name(value))
+        ResultEnum::Name(value)
     })
     .parse(input)
 }
 
 fn parser_new(input: &str) -> IResult<&str, HashMap<&str, ResultEnum>> {
-    let (remain, res) = many1(alt((action, goto))).parse(input)?;
+    let (remain, res) = many1(alt((
+        map(action, |value| ("jump", value)),
+        map(goto, |value| ("goto", value)))
+    )
+    ).parse(input)?;
     let m = res.into_iter().collect();
     Ok((remain, m))
 }
