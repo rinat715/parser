@@ -1,3 +1,4 @@
+use nom::character::complete::alpha1;
 use nom::character::complete::not_line_ending;
 use nom::character::complete::space0;
 use nom::combinator::map_parser;
@@ -9,7 +10,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::space1,
-    combinator::{map, opt, value},
+    combinator::{map, opt, value, verify},
     IResult,
 };
 use serde_derive::Serialize;
@@ -24,18 +25,13 @@ mod tests {
     use tester::tester;
 
     #[tester("token_a.toml")]
-    fn token_a(arg: &str) -> IResult<&str, Token> {
-        rule_name("-A")(arg)
+    fn token_a(arg: &str) -> IResult<&str, ResultEnum> {
+        nameP(arg)
     }
 
     #[tester("token_j.toml")]
     fn test_token_j(arg: &str) -> IResult<&str, Token> {
         token_with_value("-j")(arg)
-    }
-
-    #[tester("token_g.toml")]
-    fn test_token_g(arg: &str) -> IResult<&str, Token> {
-        token_with_value("-g")(arg)
     }
 
     #[tester("token_reject_with.toml")]
@@ -49,8 +45,8 @@ mod tests {
     }
 
     #[tester("parser.toml")]
-    fn test_parser(arg: &str) -> IResult<&str, Vec<Token>> {
-        parser(arg)
+    fn test_parser(arg: &str) -> IResult<&str, Vec<ResultEnum>> {
+        parser_new(arg)
     }
 
     #[test]
@@ -105,6 +101,41 @@ impl<'a> Token<'a> {
             value: value,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+enum ResultEnum<'a> {
+    ActionType(d::ActionType),
+    Goto(d::ActionSetting<'a>),
+    Name(&'a str),
+}
+
+fn action<'a>(input: &str) -> IResult<&str, ResultEnum> {
+    let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
+    map(
+        preceded(tuple((space1, tag("-j"), space1)), parser),
+        |value| ResultEnum::ActionType(d::ActionType::from_str(value).unwrap()),
+    )
+    .parse(input)
+}
+
+fn goto<'a>(input: &str) -> IResult<&str, ResultEnum> {
+    map(
+        preceded(tuple((space1, tag("-g"), space1)), until_eof),
+        |value| ResultEnum::Goto(d::ActionSetting::new(d::ActionType::GOTO, value)),
+    )
+    .parse(input)
+}
+
+fn nameP<'a>(input: &str) -> IResult<&str, ResultEnum> {
+    map(preceded(tuple((tag("-A"), space1)), until_eof), |value| {
+        ResultEnum::Name(value)
+    })
+    .parse(input)
+}
+
+fn parser_new(input: &str) -> IResult<&str, Vec<ResultEnum>> {
+    many1(alt((action, goto)))(input)
 }
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
