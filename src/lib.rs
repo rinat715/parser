@@ -36,22 +36,12 @@ mod tests {
         assert_eq!(remaining, "");
         assert_eq!(result.get("jump"), Some(&"REJECT"));
     }
-}
 
-#[derive(Debug, PartialEq, Serialize)]
-enum Result<'a> {
-    ActionType(d::ActionType),
-    ActionSetting(d::ActionSetting<'a>),
-}
-
-fn action<'a>(input: &str) -> IResult<&str, &str> {
-    let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
-    preceded(tuple((space1, tag("-j"), space1)), parser).parse(input)
-}
-
-fn jump<'a>(input: &str) -> IResult<&str, &str> {
-    let parser = verify(alpha1, |s: &str| d::ActionType::from_str(s).is_ok());
-    preceded(tuple((space1, tag("-j"), space1)), parser).parse(input)
+    #[tester("acl.toml")]
+    fn test_parser(arg: &str) -> IResult<&str, d::ACLRule> {
+        let v = vec![];
+        rule(arg, v)
+    }
 }
 
 fn name<'a>(input: &str) -> IResult<&str, &str> {
@@ -68,7 +58,7 @@ fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
 
 fn parser(input: &str) -> IResult<&str, HashMap<&str, &str>> {
     let (remain, res) = many1(alt((
-        map(action, |value| ("jump", value)),
+        map(tag_value("-j"), |value| ("jump", value)),
         map(tag_value("-g"), |value| ("goto", value)),
         map(tag_value("--log-level"), |value| ("log_level", value)),
         map(tag_value("--log-prefix"), |value| ("log-prefix", value)),
@@ -90,20 +80,36 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-pub fn rule<'a>(s: &'a str) -> IResult<&'a str, d::ACLRule<'a>> {
+fn jump<'a>(jump: &'a str, user_chains: Vec<&'a str>) -> Option<d::ActionSetting<'a>> {
+    let action_ = d::ActionType::from_str(jump)
+            .map(|action| d::ActionSetting::new(action, ""))
+            .ok();
+
+    let jump = user_chains
+            .contains(&jump)
+            .then_some(d::ActionSetting::new(d::ActionType::JUMP, jump))
+    ;
+    action_.or(jump)
+}
+
+
+pub fn rule<'a>(s: &'a str, user_chains: Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let (input, name) = name(s)?;
 
     let (input, tokens) = parser(input)?;
 
-    let action = tokens
-        .get("goto")
-        .map(|value| d::ActionSetting::new(d::ActionType::GOTO, value))
-        .or(tokens
-            .get("jump")
-            .map(|value| d::ActionSetting::new(d::ActionType::from_str(value).unwrap(), "")))
-        .unwrap_or(ActionSetting::new(domain::ActionType::PASS, ""));
+    let jump = tokens
+        .get("jump").and_then(|value|jump(&value, user_chains));
 
+    let goto = tokens
+        .get("goto")
+        .map(|value| d::ActionSetting::new(d::ActionType::GOTO, value));
+
+    let action = jump.or(goto).unwrap_or(d::ActionSetting::new(domain::ActionType::PASS, ""));
     let normalized_action = action.normalized_action().ok();
+
+    
+
 
     Ok((input, d::ACLRule::new(action, normalized_action, name)))
 }

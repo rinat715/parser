@@ -5,6 +5,7 @@ remaining = " --ctstate RELATED,ESTABLISHED"
 [test_1.expected]
 name = "INPUT"
 action_modifiers = []
+normalized_action = ["JUMP"]
 
 [[test_1.expected.action]]
 action = "GOTO"
