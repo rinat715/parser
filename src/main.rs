@@ -3,7 +3,7 @@ use parser::rule;
 fn main() {
     let arg = "-A INPUT -g MY_CHAIN --ctstate RELATED,ESTABLISHED";
     let v = vec![];
-    let res = rule(arg, v);
+    let res = rule(arg, &v);
 
     match res {
         Ok(arg) => {

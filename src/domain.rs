@@ -122,11 +122,11 @@ impl<'a> ActionSetting<'a> {
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ACLRule<'a> {
-    action_modifiers: Vec<ActionSetting<'a>>,
-    name: &'a str,
-    action: Vec<ActionSetting<'a>>,
+    pub action_modifiers: Vec<ActionSetting<'a>>,
+    pub name: &'a str,
+    pub action: Vec<ActionSetting<'a>>,
     #[serde(serialize_with = "ser_vec_options")]
-    normalized_action:  Vec<Option<NormalizedAction>>
+    pub normalized_action:  Vec<Option<NormalizedAction>>
 }
 
 impl<'a> ACLRule<'a> {

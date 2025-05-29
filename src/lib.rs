@@ -1,21 +1,14 @@
-use domain::ActionSetting;
-use nom::character::complete::alpha1;
 use nom::character::complete::not_line_ending;
-use nom::character::complete::space0;
-use nom::combinator::map_parser;
-use nom::multi::{fold_many1, many1};
-use nom::sequence::separated_pair;
+use nom::multi::many1;
 use nom::sequence::{preceded, tuple};
 use nom::Parser;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::space1,
-    combinator::{iterator, map, map_res, value, verify},
+    combinator::{map, value},
     IResult,
 };
-use serde::de::value;
-use serde_derive::Serialize;
 use std::collections::HashMap;
 
 use std::str::FromStr;
@@ -34,13 +27,13 @@ mod tests {
     fn test_parser_new() {
         let (remaining, result) = parser(" -j REJECT").unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(result.get("jump"), Some(&"REJECT"));
+        assert_eq!(result.get("jump").unwrap().value().unwrap(), "REJECT");
     }
 
     #[tester("acl.toml")]
     fn test_parser(arg: &str) -> IResult<&str, d::ACLRule> {
         let v = vec![];
-        rule(arg, v)
+        rule(arg, &v)
     }
 }
 
@@ -48,15 +41,31 @@ fn name<'a>(input: &str) -> IResult<&str, &str> {
     preceded(tuple((tag("-A"), space1)), until_eof).parse(input)
 }
 
-fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded(tuple((space1, tag(arg), space1)), until_eof).parse(input)
+fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Result> {
+    move |input: &str| preceded(tuple((space1, tag(arg), space1)), until_eof).map(|value|Result::Value(value)).parse(input)
 }
 
-fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| value("", preceded(space1, tag(arg))).parse(input)
+fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Result> {
+    move |input: &str| value(Result::Tag, preceded(space1, tag(arg))).parse(input)
 }
 
-fn parser(input: &str) -> IResult<&str, HashMap<&str, &str>> {
+#[derive(Clone)]
+enum Result<'a> {
+    Value(&'a str),
+    Tag
+}
+
+impl<'a> Result<'a> {
+    fn value(&self) -> Option<&'a str> {
+        match self {
+            Self::Value(value) => Some(value),
+            _ => None
+        }
+    }
+    
+}
+
+fn parser(input: &str) -> IResult<&str, HashMap<&str, Result>> {
     let (remain, res) = many1(alt((
         map(tag_value("-j"), |value| ("jump", value)),
         map(tag_value("-g"), |value| ("goto", value)),
@@ -80,36 +89,64 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn jump<'a>(jump: &'a str, user_chains: Vec<&'a str>) -> Option<d::ActionSetting<'a>> {
-    let action_ = d::ActionType::from_str(jump)
-            .map(|action| d::ActionSetting::new(action, ""))
-            .ok();
+struct RuleBuilder<'a>(d::ACLRule<'a>);
+impl<'a> RuleBuilder<'a> {
 
-    let jump = user_chains
-            .contains(&jump)
-            .then_some(d::ActionSetting::new(d::ActionType::JUMP, jump))
-    ;
-    action_.or(jump)
+    pub fn new(name: &'a str) -> Self {
+        let action = d::ActionSetting::new(domain::ActionType::PASS, "");
+        let normalized_action = Option::None;
+        Self(d::ACLRule::new(action, normalized_action, name))
+    }
+
+    fn goto(&mut self, action: Option<&'a str>)  {
+        action.map(|value| self.0.action = vec![d::ActionSetting::new(d::ActionType::GOTO, value)]);
+    }
+    fn action(&mut self, action: Option<&'a str>)   {
+        action.map(|value|
+            {
+                d::ActionType::from_str(value)
+                .map(|value| d::ActionSetting::new(value, ""))
+                .map(|value| self.0.action = vec![value])
+            }
+        );
+    }
+    fn jump(&mut self, action: Option<&'a str>, user_chains: &Vec<&'a str>) {
+        action.map(|value| {
+            user_chains.contains(&value).then_some(|value| {
+                self.0.action = vec![d::ActionSetting::new(d::ActionType::JUMP, value)]
+            })
+        });
+    }
+    fn normalized_action(&mut self) {
+        self.0.normalized_action = vec![self
+            .0
+            .action
+            .first()
+            .and_then(|value| value.normalized_action().ok())];
+    }
+    fn build(mut self) -> d::ACLRule<'a> {
+        self.normalized_action();
+        self.0
+    }
 }
 
 
-pub fn rule<'a>(s: &'a str, user_chains: Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
+pub fn rule<'a>(s: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let (input, name) = name(s)?;
 
     let (input, tokens) = parser(input)?;
 
-    let jump = tokens
-        .get("jump").and_then(|value|jump(&value, user_chains));
+    let mut builder = RuleBuilder::new(name);
 
-    let goto = tokens
-        .get("goto")
-        .map(|value| d::ActionSetting::new(d::ActionType::GOTO, value));
+    builder.goto(tokens.get("goto").and_then(|value| value.value()));
 
-    let action = jump.or(goto).unwrap_or(d::ActionSetting::new(domain::ActionType::PASS, ""));
-    let normalized_action = action.normalized_action().ok();
+    builder.action(tokens.get("jump").and_then(|value| value.value()));
 
+    builder.jump(tokens.get("jump").and_then(|value| value.value()), user_chains);
+
+    let rule = builder.build();
     
 
 
-    Ok((input, d::ACLRule::new(action, normalized_action, name)))
+    Ok((input, rule))
 }
