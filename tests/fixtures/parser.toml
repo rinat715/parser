@@ -3,7 +3,7 @@ input = " -j REJECT"
 remaining = ""
 
 [[test_1.expected]]
-ActionType = "REJECT"
+
 
 
 [test_2]

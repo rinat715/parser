@@ -10,6 +10,7 @@ use nom::{
     IResult,
 };
 use std::collections::HashMap;
+use serde_derive::Serialize;
 
 use std::str::FromStr;
 mod domain;
@@ -27,13 +28,31 @@ mod tests {
     fn test_parser_new() {
         let (remaining, result) = parser(" -j REJECT").unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(result.get("jump").unwrap().value().unwrap(), "REJECT");
+        assert_eq!(result.first().unwrap().1.value().unwrap(), "REJECT");
     }
 
+    #[test]
+    fn test_serialize() {
+        let arg = d::ActionType::ACCEPT;
+        let r = toml::to_string(&arg).unwrap();
+        println!("{}", r);
+        assert_eq!(r, "")
+
+    }
+
+
+
     #[tester("acl.toml")]
-    fn test_parser(arg: &str) -> IResult<&str, d::ACLRule> {
+    fn test_rule(arg: &str) -> IResult<&str, d::ACLRule> {
         let v = vec![];
         rule(arg, &v)
+    }
+
+
+    #[tester("parser.toml")]
+    fn test_parser(arg: &str) -> IResult<&str, Vec<(&str, Result)>> {
+        parser(arg)
+
     }
 }
 
@@ -42,31 +61,36 @@ fn name<'a>(input: &str) -> IResult<&str, &str> {
 }
 
 fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Result> {
-    move |input: &str| preceded(tuple((space1, tag(arg), space1)), until_eof).map(|value|Result::Value(value)).parse(input)
+    move |input: &str| {
+        preceded(tuple((space1, tag(arg), space1)), until_eof)
+            .map(|value| Result::Value(value))
+            .parse(input)
+    }
 }
 
 fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Result> {
     move |input: &str| value(Result::Tag, preceded(space1, tag(arg))).parse(input)
 }
 
-#[derive(Clone)]
+
+#[derive(Clone, Serialize)]
 enum Result<'a> {
     Value(&'a str),
-    Tag
+    Tag,
 }
 
 impl<'a> Result<'a> {
     fn value(&self) -> Option<&'a str> {
         match self {
             Self::Value(value) => Some(value),
-            _ => None
+            _ => None,
         }
     }
-    
 }
 
-fn parser(input: &str) -> IResult<&str, HashMap<&str, Result>> {
-    let (remain, res) = many1(alt((
+
+fn parser(input: &str) -> IResult<&str, Vec<(&str, Result)>> {
+    many1(alt((
         map(tag_value("-j"), |value| ("jump", value)),
         map(tag_value("-g"), |value| ("goto", value)),
         map(tag_value("--log-level"), |value| ("log_level", value)),
@@ -79,8 +103,7 @@ fn parser(input: &str) -> IResult<&str, HashMap<&str, Result>> {
         }),
         map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)),
     )))
-    .parse(input)?;
-    Ok((remain, res.into_iter().collect()))
+    .parse(input)
 }
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
@@ -91,24 +114,21 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
 
 struct RuleBuilder<'a>(d::ACLRule<'a>);
 impl<'a> RuleBuilder<'a> {
-
     pub fn new(name: &'a str) -> Self {
         let action = d::ActionSetting::new(domain::ActionType::PASS, "");
         let normalized_action = Option::None;
         Self(d::ACLRule::new(action, normalized_action, name))
     }
 
-    fn goto(&mut self, action: Option<&'a str>)  {
+    fn goto(&mut self, action: Option<&'a str>) {
         action.map(|value| self.0.action = vec![d::ActionSetting::new(d::ActionType::GOTO, value)]);
     }
-    fn action(&mut self, action: Option<&'a str>)   {
-        action.map(|value|
-            {
-                d::ActionType::from_str(value)
+    fn action(&mut self, action: Option<&'a str>) {
+        action.map(|value| {
+            d::ActionType::from_str(value)
                 .map(|value| d::ActionSetting::new(value, ""))
                 .map(|value| self.0.action = vec![value])
-            }
-        );
+        });
     }
     fn jump(&mut self, action: Option<&'a str>, user_chains: &Vec<&'a str>) {
         action.map(|value| {
@@ -130,7 +150,6 @@ impl<'a> RuleBuilder<'a> {
     }
 }
 
-
 pub fn rule<'a>(s: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let (input, name) = name(s)?;
 
@@ -138,15 +157,15 @@ pub fn rule<'a>(s: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::A
 
     let mut builder = RuleBuilder::new(name);
 
-    builder.goto(tokens.get("goto").and_then(|value| value.value()));
+    let map: HashMap<&str, Result> = tokens.into_iter().collect();
 
-    builder.action(tokens.get("jump").and_then(|value| value.value()));
+    builder.goto(map.get("goto").and_then(|value| value.value()));
 
-    builder.jump(tokens.get("jump").and_then(|value| value.value()), user_chains);
+    builder.action(map.get("jump").and_then(|value| value.value()));
+
+    builder.jump(map.get("jump").and_then(|value| value.value()), user_chains);
 
     let rule = builder.build();
-    
-
 
     Ok((input, rule))
 }
