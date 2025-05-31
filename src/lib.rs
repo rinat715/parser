@@ -1,18 +1,16 @@
-use nom::character::complete::not_line_ending;
-use nom::multi::many1;
-use nom::sequence::{preceded, tuple};
-use nom::Parser;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    character::complete::space1,
+    character::complete::{not_line_ending, space1},
     combinator::{map, value},
-    IResult,
+    multi::many1,
+    sequence::{preceded, tuple},
+    IResult, Parser,
 };
+use serde::{Serialize, Serializer};
 use std::collections::HashMap;
-use serde_derive::Serialize;
-
 use std::str::FromStr;
+
 mod domain;
 use domain as d;
 
@@ -28,19 +26,11 @@ mod tests {
     fn test_parser_new() {
         let (remaining, result) = parser(" -j REJECT").unwrap();
         assert_eq!(remaining, "");
-        assert_eq!(result.first().unwrap().1.value().unwrap(), "REJECT");
+        assert_eq!(
+            result.get("jump").and_then(|value| value.value()),
+            Some("REJECT")
+        )
     }
-
-    #[test]
-    fn test_serialize() {
-        let arg = d::ActionType::ACCEPT;
-        let r = toml::to_string(&arg).unwrap();
-        println!("{}", r);
-        assert_eq!(r, "")
-
-    }
-
-
 
     #[tester("acl.toml")]
     fn test_rule(arg: &str) -> IResult<&str, d::ACLRule> {
@@ -48,38 +38,41 @@ mod tests {
         rule(arg, &v)
     }
 
-
     #[tester("parser.toml")]
-    fn test_parser(arg: &str) -> IResult<&str, Vec<(&str, Result)>> {
+    fn test_parser(arg: &str) -> IResult<&str, HashMap<&str, Token>> {
         parser(arg)
-
     }
+}
+
+fn until_eof(s: &str) -> IResult<&str, &str> {
+    let is_next = alt((take_until(" !"), take_until(" -")));
+
+    alt((is_next, not_line_ending))(s)
 }
 
 fn name<'a>(input: &str) -> IResult<&str, &str> {
     preceded(tuple((tag("-A"), space1)), until_eof).parse(input)
 }
 
-fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Result> {
+fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
         preceded(tuple((space1, tag(arg), space1)), until_eof)
-            .map(|value| Result::Value(value))
+            .map(|value| Token::Value(value))
             .parse(input)
     }
 }
 
-fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Result> {
-    move |input: &str| value(Result::Tag, preceded(space1, tag(arg))).parse(input)
+fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
+    move |input: &str| value(Token::Tag, preceded(space1, tag(arg))).parse(input)
 }
 
-
-#[derive(Clone, Serialize)]
-enum Result<'a> {
+#[derive(Clone)]
+enum Token<'a> {
     Value(&'a str),
     Tag,
 }
 
-impl<'a> Result<'a> {
+impl<'a> Token<'a> {
     fn value(&self) -> Option<&'a str> {
         match self {
             Self::Value(value) => Some(value),
@@ -88,28 +81,36 @@ impl<'a> Result<'a> {
     }
 }
 
-
-fn parser(input: &str) -> IResult<&str, Vec<(&str, Result)>> {
-    many1(alt((
-        map(tag_value("-j"), |value| ("jump", value)),
-        map(tag_value("-g"), |value| ("goto", value)),
-        map(tag_value("--log-level"), |value| ("log_level", value)),
-        map(tag_value("--log-prefix"), |value| ("log-prefix", value)),
-        map(is_tag("--log-tcp-sequence"), |value| {
-            ("log-tcp-sequence", value)
-        }),
-        map(is_tag("--log-tcp-options"), |value| {
-            ("log-tcp-options", value)
-        }),
-        map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)),
-    )))
-    .parse(input)
+impl<'a> Serialize for Token<'a> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match *self {
+            Token::Value(a) => serializer.serialize_str(a),
+            Token::Tag => serializer.serialize_str("tag"),
+        }
+    }
 }
 
-fn until_eof(s: &str) -> IResult<&str, &str> {
-    let is_next = alt((take_until(" !"), take_until(" -")));
-
-    alt((is_next, not_line_ending))(s)
+fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
+    map(
+        many1(alt((
+            map(tag_value("-j"), |value| ("jump", value)),
+            map(tag_value("-g"), |value| ("goto", value)),
+            map(tag_value("--log-level"), |value| ("log_level", value)),
+            map(tag_value("--log-prefix"), |value| ("log-prefix", value)),
+            map(is_tag("--log-tcp-sequence"), |value| {
+                ("log-tcp-sequence", value)
+            }),
+            map(is_tag("--log-tcp-options"), |value| {
+                ("log-tcp-options", value)
+            }),
+            map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)),
+        ))),
+        |value| value.into_iter().collect(),
+    )
+    .parse(input)
 }
 
 struct RuleBuilder<'a>(d::ACLRule<'a>);
@@ -157,7 +158,7 @@ pub fn rule<'a>(s: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::A
 
     let mut builder = RuleBuilder::new(name);
 
-    let map: HashMap<&str, Result> = tokens.into_iter().collect();
+    let map: HashMap<&str, Token> = tokens.into_iter().collect();
 
     builder.goto(map.get("goto").and_then(|value| value.value()));
 

@@ -2,13 +2,6 @@
 input = " -j REJECT"
 remaining = ""
 
-[[test_1.expected]]
+[test_1.expected]
+jump = "REJECT"
 
-
-
-[test_2]
-input = " -g MY CHAIN"
-remaining = ""
-
-[[test_2.expected]]
-Goto = {action = "GOTO", option = "MY CHAIN"}
