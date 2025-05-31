@@ -8,6 +8,7 @@ use nom::{
     IResult, Parser,
 };
 use serde::{Serialize, Serializer, ser::SerializeMap};
+use core::error;
 use std::str::{from_boxed_utf8_unchecked, FromStr};
 
 mod domain;
@@ -26,7 +27,7 @@ mod tests {
         let (remaining, result) = parser(" -j REJECT").unwrap();
         assert_eq!(remaining, "");
         assert_eq!(
-            result.get("jump").and_then(|value| value.value()),
+            result.0.first().unwrap().1.value(),
             Some("REJECT")
         )
     }
@@ -38,7 +39,7 @@ mod tests {
     }
 
     #[tester("parser.toml")]
-    fn test_parser(arg: &str) -> IResult<&str, HashMap<&str, Token>> {
+    fn test_parser(arg: &str) -> IResult<&str, Tokens> {
         parser(arg)
     }
 }
@@ -78,7 +79,7 @@ fn unknown_part(input: &str) -> IResult<&str, Token> {
 #[derive(Clone, Debug)]
 enum Token<'a> {
     Value(&'a str),
-    Errors(Vec<&'a str>),
+    Error(&'a str),
     Tag,
 }
 
@@ -97,9 +98,9 @@ impl<'a> Serialize for Token<'a> {
         S: Serializer,
     {
         match *self {
+            Token::Error(a) |
             Token::Value(a) => serializer.serialize_str(a),
-            Token::Tag => serializer.serialize_str("tag"),
-            Token::Errors(ref v) => serializer.serialize_str(&v.join(" ")),
+            Token::Tag => serializer.serialize_str("tag")
         }
     }
 }
@@ -113,10 +114,16 @@ impl<'a> Serialize for Tokens<'a> {
     where
         S: Serializer,
     {
+        let mut errors: Vec<&str> = vec![];
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
         for (k, v) in &self.0 {
-            map.serialize_entry(k, &v)?;
+            match v {
+                 Token::Error(a) => errors.push(a),
+                 _ => map.serialize_entry(k, &v)?,
+            }
         }
+        let errors_str = errors.join(" ");
+        map.serialize_entry("errors", &errors_str)?;
         map.end()
     }
 }
@@ -174,36 +181,36 @@ impl<'a> RuleBuilder<'a> {
             .first()
             .and_then(|value| value.normalized_action().ok())];
     }
-    fn parse(&mut self, tokens: &'a Tokens, user_chains: &Vec<&'a str>) -> &Tokens {
+
+    fn build(mut self, input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
+        let (input, tokens) = parser(input)?;
         let mut iter = tokens.0.iter();
 
         while let Some(item) = iter.next() {
             match item.0 {
-                "name" => self.0.name = item.1.value().u,
+                "name" => self.0.name = item.1.value().unwrap(),
                 "goto" => self.goto(item.1.value()),
                 "jump" => {
                     self.action(item.1.value());
                     self.jump(item.1.value(), user_chains)
                 }
 
-                _ => !todo!()
+                _ => ()
             }
         }
-        tokens
-    }
-    fn build(mut self) -> d::ACLRule<'a> {
+
+
         self.normalized_action();
-        self.0
+        Ok((input,  self.0))
+       
     }
 }
 
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let (input, tokens) = parser(input)?;
 
-    let mut builder = RuleBuilder::new();
-    let _ = builder.parse(&tokens, user_chains);
 
-    let rule = builder.build();
+    let builder = RuleBuilder::new();
 
-    Ok((input, rule))
+    builder.build(input, user_chains)
+
 }
