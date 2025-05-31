@@ -19,3 +19,33 @@ remaining = ""
 input = " --log-ip-options"
 expected.log-ip-option = "tag"
 remaining = "s"
+
+[test_5]
+input = "-A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix \"BG \" 123\""
+expected.log-ip-option = "tag"
+remaining = "s"
+
+[test_6]
+input = "-A INPUT ! -s 10.0.0.4/32 -p icmp -j DROP"
+expected.log-ip-option = "tag"
+remaining = "s"
+
+[test_7]
+input = "-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
+expected.log-ip-option = "tag"
+remaining = "s"
+
+[test_8]
+input = "-A INPUT -m recent --rcheck --seconds 60 --name DEFAULT --rsource -m limit --limit 10/sec -j LOG --log-prefix \"BG \""
+expected.log-ip-option = "tag"
+remaining = "s"
+
+[test_9]
+input = "-A INPUT -s 10.0.0.12/32 -j DROP --tcp-flags FIN,SYN,ACK ACK"
+expected.log-ip-option = "tag"
+remaining = "s"
+
+[test_10]
+input = "-A OUTPUT --match-set BlockedHosts dst,dst -j DROP"
+expected.log-ip-option = "tag"
+remaining = "s"

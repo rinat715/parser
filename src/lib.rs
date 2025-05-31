@@ -70,6 +70,10 @@ fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| value(Token::Tag, preceded(space1, tag(arg))).parse(input)
 }
 
+fn unknown_part(input: &str) -> IResult<&str, Token> {
+    map(until_eof, |value| Token::Value(value)).parse(input)
+}
+
 #[derive(Clone)]
 enum Token<'a> {
     Value(&'a str),
@@ -98,21 +102,25 @@ impl<'a> Serialize for Token<'a> {
 }
 
 fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
+    let parser = alt((
+        map(first_tag_value("-A"), |value| ("name", value)),
+        map(tag_value("-j"), |value| ("jump", value)),
+        map(tag_value("-g"), |value| ("goto", value)),
+        map(tag_value("--log-level"), |value| ("log_level", value)),
+        map(tag_value("--log-prefix"), |value| ("log-prefix", value)),
+        map(is_tag("--log-tcp-sequence"), |value| {
+            ("log-tcp-sequence", value)
+        }),
+        map(is_tag("--log-tcp-options"), |value| {
+            ("log-tcp-options", value)
+        }),
+        map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)), // TODO s
+    ));
+
     map(
-        many1(alt((
-            map(first_tag_value("-A"), |value| ("name", value)),
-            map(tag_value("-j"), |value| ("jump", value)),
-            map(tag_value("-g"), |value| ("goto", value)),
-            map(tag_value("--log-level"), |value| ("log_level", value)),
-            map(tag_value("--log-prefix"), |value| ("log-prefix", value)),
-            map(is_tag("--log-tcp-sequence"), |value| {
-                ("log-tcp-sequence", value)
-            }),
-            map(is_tag("--log-tcp-options"), |value| {
-                ("log-tcp-options", value)
-            }),
-            map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)), // TODO s
-        ))),
+        many1(
+            alt((parser, map(unknown_part, |value| ("error", value))))
+        ),
         |value| value.into_iter().collect(),
     )
     .parse(input)
