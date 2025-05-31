@@ -7,9 +7,8 @@ use nom::{
     sequence::{pair, preceded, tuple},
     IResult, Parser,
 };
-use serde::{Serialize, Serializer};
-use std::collections::HashMap;
-use std::str::FromStr;
+use serde::{Serialize, Serializer, ser::SerializeMap};
+use std::str::{from_boxed_utf8_unchecked, FromStr};
 
 mod domain;
 use domain as d;
@@ -105,8 +104,27 @@ impl<'a> Serialize for Token<'a> {
     }
 }
 
-fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
-    let (remain, tokens) = many1(alt((
+
+struct Tokens<'a>(Vec<(&'a str, Token<'a>)>);
+
+
+impl<'a> Serialize for Tokens<'a> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in &self.0 {
+            map.serialize_entry(k, &v)?;
+        }
+        map.end()
+    }
+}
+
+
+
+fn parser(input: &str) -> IResult<&str, Tokens> {
+    map(many1(alt((
         map(first_tag_value("-A"), |value| ("name", value)),
         map(tag_value("-j"), |value| ("jump", value)),
         map(tag_value("-g"), |value| ("goto", value)),
@@ -120,26 +138,16 @@ fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
         }),
         map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)),
         map(unknown_part, |value| ("error", value)),
-    )))
-    .parse(input)?;
-
-    let errors: Vec<_>  = tokens.iter().filter(|x| x.0 == "error").map(|x|x.1.clone().value().unwrap_or_default()).collect(); // TODO clone 
-
-    println!("{:?}", errors);
-    let mut map: HashMap<&str, Token> = tokens.into_iter().collect();
-    if  !errors.is_empty() {
-        map.insert("error", Token::Errors(errors));
-    }
-    
-    Ok((remain, map))
+    ))), |value| Tokens(value) )
+    .parse(input)
 }
 
 struct RuleBuilder<'a>(d::ACLRule<'a>);
 impl<'a> RuleBuilder<'a> {
-    pub fn new(name: &'a str) -> Self {
+    pub fn new() -> Self {
         let action = d::ActionSetting::new(domain::ActionType::PASS, "");
         let normalized_action = Option::None;
-        Self(d::ACLRule::new(action, normalized_action, name))
+        Self(d::ACLRule::new(action, normalized_action, ""))
     }
 
     fn goto(&mut self, action: Option<&'a str>) {
@@ -166,6 +174,23 @@ impl<'a> RuleBuilder<'a> {
             .first()
             .and_then(|value| value.normalized_action().ok())];
     }
+    fn parse(&mut self, tokens: &'a Tokens, user_chains: &Vec<&'a str>) -> &Tokens {
+        let mut iter = tokens.0.iter();
+
+        while let Some(item) = iter.next() {
+            match item.0 {
+                "name" => self.0.name = item.1.value().u,
+                "goto" => self.goto(item.1.value()),
+                "jump" => {
+                    self.action(item.1.value());
+                    self.jump(item.1.value(), user_chains)
+                }
+
+                _ => !todo!()
+            }
+        }
+        tokens
+    }
     fn build(mut self) -> d::ACLRule<'a> {
         self.normalized_action();
         self.0
@@ -175,16 +200,8 @@ impl<'a> RuleBuilder<'a> {
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let (input, tokens) = parser(input)?;
 
-    let mut builder = RuleBuilder::new(tokens.get("name").and_then(|value| value.value()).unwrap());
-
-    builder.goto(tokens.get("goto").and_then(|value| value.value()));
-
-    builder.action(tokens.get("jump").and_then(|value| value.value()));
-
-    builder.jump(
-        tokens.get("jump").and_then(|value| value.value()),
-        user_chains,
-    );
+    let mut builder = RuleBuilder::new();
+    let _ = builder.parse(&tokens, user_chains);
 
     let rule = builder.build();
 
