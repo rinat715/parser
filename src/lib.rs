@@ -4,7 +4,7 @@ use nom::{
     character::complete::{not_line_ending, space1},
     combinator::{map, value},
     multi::many1,
-    sequence::{preceded, tuple},
+    sequence::{preceded, tuple, pair},
     IResult, Parser,
 };
 use serde::{Serialize, Serializer};
@@ -50,13 +50,17 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn name<'a>(input: &str) -> IResult<&str, &str> {
-    preceded(tuple((tag("-A"), space1)), until_eof).parse(input)
+fn first_tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token>  {
+    move |input: &str| {
+        preceded(tuple((tag(arg), space1)), until_eof)
+            .map(|value| Token::Value(value))
+            .parse(input)
+    }
 }
 
 fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
-        preceded(tuple((space1, tag(arg), space1)), until_eof)
+        preceded(pair(space1, tuple((tag(arg), space1))), until_eof)
             .map(|value| Token::Value(value))
             .parse(input)
     }
@@ -96,6 +100,7 @@ impl<'a> Serialize for Token<'a> {
 fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
     map(
         many1(alt((
+            map(first_tag_value("-A"), |value| ("name", value)),
             map(tag_value("-j"), |value| ("jump", value)),
             map(tag_value("-g"), |value| ("goto", value)),
             map(tag_value("--log-level"), |value| ("log_level", value)),
@@ -151,20 +156,17 @@ impl<'a> RuleBuilder<'a> {
     }
 }
 
-pub fn rule<'a>(s: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let (input, name) = name(s)?;
-
+pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let (input, tokens) = parser(input)?;
 
-    let mut builder = RuleBuilder::new(name);
+    let mut builder = RuleBuilder::new(tokens.get("name").and_then(|value| value.value()).unwrap());
 
-    let map: HashMap<&str, Token> = tokens.into_iter().collect();
 
-    builder.goto(map.get("goto").and_then(|value| value.value()));
+    builder.goto(tokens.get("goto").and_then(|value| value.value()));
 
-    builder.action(map.get("jump").and_then(|value| value.value()));
+    builder.action(tokens.get("jump").and_then(|value| value.value()));
 
-    builder.jump(map.get("jump").and_then(|value| value.value()), user_chains);
+    builder.jump(tokens.get("jump").and_then(|value| value.value()), user_chains);
 
     let rule = builder.build();
 
