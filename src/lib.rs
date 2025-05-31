@@ -2,9 +2,9 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{not_line_ending, space1},
-    combinator::{map, value},
+    combinator::{eof, map, value},
     multi::many1,
-    sequence::{preceded, tuple, pair},
+    sequence::{pair, preceded, tuple},
     IResult, Parser,
 };
 use serde::{Serialize, Serializer};
@@ -50,7 +50,7 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn first_tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token>  {
+fn first_tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
     move |input: &str| {
         preceded(tuple((tag(arg), space1)), until_eof)
             .map(|value| Token::Value(value))
@@ -71,12 +71,15 @@ fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Token> {
 }
 
 fn unknown_part(input: &str) -> IResult<&str, Token> {
-    map(until_eof, |value| Token::Value(value)).parse(input)
+    preceded(space1, until_eof)
+        .map(|value| Token::Value(value))
+        .parse(input)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Token<'a> {
     Value(&'a str),
+    Errors(Vec<&'a str>),
     Tag,
 }
 
@@ -97,12 +100,13 @@ impl<'a> Serialize for Token<'a> {
         match *self {
             Token::Value(a) => serializer.serialize_str(a),
             Token::Tag => serializer.serialize_str("tag"),
+            Token::Errors(ref v) => serializer.serialize_str(&v.join(" ")),
         }
     }
 }
 
 fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
-    let parser = alt((
+    let (remain, tokens) = many1(alt((
         map(first_tag_value("-A"), |value| ("name", value)),
         map(tag_value("-j"), |value| ("jump", value)),
         map(tag_value("-g"), |value| ("goto", value)),
@@ -114,16 +118,20 @@ fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
         map(is_tag("--log-tcp-options"), |value| {
             ("log-tcp-options", value)
         }),
-        map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)), // TODO s
-    ));
+        map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)),
+        map(unknown_part, |value| ("error", value)),
+    )))
+    .parse(input)?;
 
-    map(
-        many1(
-            alt((parser, map(unknown_part, |value| ("error", value))))
-        ),
-        |value| value.into_iter().collect(),
-    )
-    .parse(input)
+    let errors: Vec<_>  = tokens.iter().filter(|x| x.0 == "error").map(|x|x.1.clone().value().unwrap_or_default()).collect(); // TODO clone 
+
+    println!("{:?}", errors);
+    let mut map: HashMap<&str, Token> = tokens.into_iter().collect();
+    if  !errors.is_empty() {
+        map.insert("error", Token::Errors(errors));
+    }
+    
+    Ok((remain, map))
 }
 
 struct RuleBuilder<'a>(d::ACLRule<'a>);
@@ -169,12 +177,14 @@ pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, 
 
     let mut builder = RuleBuilder::new(tokens.get("name").and_then(|value| value.value()).unwrap());
 
-
     builder.goto(tokens.get("goto").and_then(|value| value.value()));
 
     builder.action(tokens.get("jump").and_then(|value| value.value()));
 
-    builder.jump(tokens.get("jump").and_then(|value| value.value()), user_chains);
+    builder.jump(
+        tokens.get("jump").and_then(|value| value.value()),
+        user_chains,
+    );
 
     let rule = builder.build();
 
