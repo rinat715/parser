@@ -4,3 +4,18 @@ remaining = ""
 
 [test_1.expected]
 jump = "REJECT"
+
+[test_2]
+input = "-A INPUT"
+expected.name = "INPUT"
+remaining = ""
+
+[test_3]
+input = "-A INPUT dfdf"
+expected.name = "INPUT dfdf"
+remaining = ""
+
+[test_4]
+input = " --log-ip-options"
+expected.log-ip-option = "tag"
+remaining = "s"

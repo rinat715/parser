@@ -111,7 +111,7 @@ fn parser(input: &str) -> IResult<&str, HashMap<&str, Token>> {
             map(is_tag("--log-tcp-options"), |value| {
                 ("log-tcp-options", value)
             }),
-            map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)),
+            map(is_tag("--log-ip-option"), |value| ("log-ip-option", value)), // TODO s
         ))),
         |value| value.into_iter().collect(),
     )

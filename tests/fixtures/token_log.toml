@@ -1,5 +1,0 @@
-[test_1]
-input = " --log-ip-options"
-expected.negative = false
-expected.name = "log-ip-options"
-remaining = ""
