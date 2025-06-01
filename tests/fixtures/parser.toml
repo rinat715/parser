@@ -16,19 +16,18 @@ expected.name = "INPUT dfdf"
 remaining = ""
 
 [test_4]
-input = " --log-ip-options"
+input = " --log-ip-option\ns"
 expected.log-ip-option = "tag"
-remaining = "s"
+remaining = "\ns"
 
 [test_5]
-input = "-A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix \"BG \" 123\""
+input = "-A check_ours -j RETURN --log-prefix \"BG \" 123\""
 remaining = ""
 
 [test_5.expected]
 name = "check_ours"
-log-prefix = '"BG " 123"'
-error = "-s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD"
 jump = "RETURN"
+log-prefix = '"BG " 123"'
 
 
 [test_6]
@@ -55,3 +54,13 @@ remaining = "s"
 input = "-A OUTPUT --match-set BlockedHosts dst,dst -j DROP"
 expected.log-ip-option = "tag"
 remaining = "s"
+
+[test_11]
+input = "-A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix \"BG \" 123\""
+remaining = ""
+
+[test_11.expected]
+name = "check_ours"
+jump = "RETURN"
+log-prefix = '"BG " 123"'
+errors = "-s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD"
