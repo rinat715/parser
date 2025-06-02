@@ -61,8 +61,8 @@ remaining = ""
 
 [test_11.expected]
 name = "check_ours"
-"error 1" = "-s 10.134.0.68/32"
-"error 2" = "-m mac"
-"error 3" = "--mac-source 00:1D:60:2E:ED:CD"
+error_1 = "-s 10.134.0.68/32"
+error_2 = "-m mac"
+error_3 = "--mac-source 00:1D:60:2E:ED:CD"
 jump = "RETURN"
 log-prefix = "\"BG \" 123\""
