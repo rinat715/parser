@@ -69,47 +69,34 @@ fn unknown_part(input: &str) -> IResult<&str, Token> {
 
 fn protocol(s: &str) -> IResult<&str, Token> {
     let positive = alt((
-        map(preceded(is_tag("-p"), alpha1), |value| Value::Str(value)),
-        map(preceded(is_tag("-p"), u8), |value| Value::Int(value)),
+        map(preceded(is_tag("-p"), alpha1), |value| {
+            Token::Protocol(d::StringOperator::new(d::OperatorType::EQ, vec![value]))
+        }),
+        map(preceded(is_tag("-p"), u8), |value| {
+            Token::ProtocolNumber(d::IntOperator::new(d::OperatorType::EQ, vec![value]))
+        }),
     ));
 
     let negative = alt((
-        map(preceded(is_tag("-p"), alpha1), |value| Value::NegStr(value)),
-        map(preceded(is_tag("-p"), u8), |value| Value::NegInt(value)),
+        map(preceded(is_tag("-p"), alpha1), |value| {
+            Token::Protocol(d::StringOperator::new(d::OperatorType::NEQ, vec![value]))
+        }),
+        map(preceded(is_tag("-p"), u8), |value| {
+            Token::ProtocolNumber(d::IntOperator::new(d::OperatorType::NEQ, vec![value]))
+        }),
     ));
 
-    map(
-        preceded(space1, alt((positive, preceded(tag("! "), negative)))),
-        |value| Token::Protocol(value),
-    )(s)
-}
-
-enum Value<'a> {
-    Str(&'a str),
-    NegStr(&'a str),
-    Int(u8),
-    NegInt(u8),
-}
-
-impl<'a> Serialize for Value<'a> {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            Value::Str(a) => serializer.serialize_str(a),
-            Value::NegStr(a) => serializer.serialize_str(&format!("!{}", a)),
-            Value::Int(a) => serializer.serialize_str(&format!("{}", a)),
-            Value::NegInt(a) => serializer.serialize_str(&format!("!{}", a)),
-        }
-    }
+    preceded(space1, alt((positive, preceded(tag("! "), negative))))
+    
+    (s)
 }
 
 enum Token<'a> {
     Jump(&'a str),
     Goto(&'a str),
     Name(&'a str),
-    Protocol(Value<'a>),
+    Protocol(d::StringOperator<'a>),
+    ProtocolNumber(d::IntOperator),
     Error(&'a str),
     LogLevel(&'a str),
     LogPrefix(&'a str),
@@ -141,6 +128,7 @@ impl<'a> Serialize for Tokens<'a> {
                 Token::LogTcpSequence => map.serialize_entry("log-tcp-sequence", "tag")?,
                 Token::Name(a) => map.serialize_entry("name", &a)?,
                 Token::Protocol(a) => map.serialize_entry("protocol", &a)?,
+                Token::ProtocolNumber(a) => map.serialize_entry("protocol_number", &a)?,
             }
             number += 1;
         }

@@ -117,7 +117,36 @@ impl<'a> ActionSetting<'a> {
     }
 }
 
+#[derive(Serialize)]
+pub enum OperatorType {
+    EQ,
+    NEQ 
+}
 
+
+#[derive(Serialize)]
+pub struct StringOperator<'a> {
+    operator: OperatorType,
+    values: Vec<&'a str>
+}
+
+impl<'a> StringOperator<'a> {
+    pub fn new(operator_type: OperatorType, values: Vec<&'a str>) -> Self {
+        Self { operator: operator_type, values: values }
+    }
+}
+
+#[derive(Serialize)]
+pub struct IntOperator {
+    operator: OperatorType,
+    values: Vec<u8>
+}
+
+impl IntOperator {
+    pub fn new(operator_type: OperatorType, values: Vec<u8>) -> Self {
+        Self { operator: operator_type, values: values }
+    }
+}
 
 
 #[derive(Debug, PartialEq, Serialize)]
