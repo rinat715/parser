@@ -27,7 +27,7 @@ remaining = ""
 [test_5.expected]
 name = "check_ours"
 jump = "RETURN"
-log-prefix = '"BG " 123"'
+log-prefix = "\"BG \" 123\""
 
 
 [test_6]
@@ -61,6 +61,8 @@ remaining = ""
 
 [test_11.expected]
 name = "check_ours"
+"error 1" = "-s 10.134.0.68/32"
+"error 2" = "-m mac"
+"error 3" = "--mac-source 00:1D:60:2E:ED:CD"
 jump = "RETURN"
-log-prefix = '"BG " 123"'
-errors = "-s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD"
+log-prefix = "\"BG \" 123\""

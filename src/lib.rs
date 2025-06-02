@@ -7,7 +7,7 @@ use nom::{
     sequence::{pair, preceded, tuple},
     IResult, Parser,
 };
-use serde::{de::value, ser::SerializeMap, Serialize, Serializer};
+use serde::{ser::SerializeMap, Serialize, Serializer};
 use std::str::FromStr;
 
 mod domain;
@@ -80,25 +80,6 @@ enum Token<'a> {
     LogIpOption,
 }
 
-impl<'a> Serialize for Token<'a> {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match *self {
-            Token::Error(a)
-            | Token::Goto(a)
-            | Token::Name(a)
-            | Token::LogLevel(a)
-            | Token::LogPrefix(a)
-            | Token::Jump(a) => serializer.serialize_str(a),
-            Token::LogTcpOptions | Token::LogTcpSequence | Token::LogIpOption => {
-                serializer.serialize_str("tag")
-            }
-        }
-    }
-}
-
 struct Tokens<'a>(Vec<Token<'a>>);
 
 impl<'a> Serialize for Tokens<'a> {
@@ -106,13 +87,13 @@ impl<'a> Serialize for Tokens<'a> {
     where
         S: Serializer,
     {
-        let mut errors: Vec<&str> = vec![];
+        let mut number = 0;
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
 
         let mut iter = self.0.iter();
         while let Some(item) = iter.next() {
             match item {
-                Token::Error(a) => errors.push(a),
+                Token::Error(a) => map.serialize_entry(&format!("error_{}", number), &a)?,
                 Token::Goto(a) => map.serialize_entry("goto", &a)?,
                 Token::Jump(a) => map.serialize_entry("jump", &a)?,
                 Token::LogIpOption => map.serialize_entry("log-ip-option", "tag")?,
@@ -122,10 +103,7 @@ impl<'a> Serialize for Tokens<'a> {
                 Token::LogTcpSequence => map.serialize_entry("log-tcp-sequence", "tag")?,
                 Token::Name(a) => map.serialize_entry("name", &a)?,
             }
-        }
-        if !errors.is_empty() {
-            let errors_str = errors.join(" ");
-            map.serialize_entry("errors", &errors_str)?;
+            number += 1;
         }
 
         map.end()
