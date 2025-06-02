@@ -32,8 +32,14 @@ log-prefix = "\"BG \" 123\""
 
 [test_6]
 input = "-A INPUT ! -s 10.0.0.4/32 -p icmp -j DROP"
-expected.log-ip-option = "tag"
-remaining = "s"
+remaining = ""
+
+[test_6.expected]
+name = "INPUT"
+error_1 = "!"
+error_2 = "-s 10.0.0.4/32"
+protocol = "icmp"
+jump = "DROP"
 
 [test_7]
 input = "-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"

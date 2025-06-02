@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    character::complete::{alpha1, i8, not_line_ending, space1},
+    character::complete::{alpha1, not_line_ending, space1, u8},
     combinator::map,
     multi::many1,
     sequence::{pair, preceded, tuple},
@@ -32,6 +32,11 @@ mod tests {
     fn test_parser(arg: &str) -> IResult<&str, Tokens> {
         parser(arg)
     }
+
+    #[tester("protocol.toml")]
+    fn test_protocol(arg: &str) -> IResult<&str, Tokens> {
+        protocol(arg).map(|(remaining, value)| (remaining, Tokens(vec![value])))
+    }
 }
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
@@ -40,19 +45,19 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn first_tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded(tuple((tag(arg), space1)), until_eof).parse(input)
+fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (&str, &str)> {
+    move |input: &str| tuple((tag(arg), space1)).parse(input)
 }
 
-fn tag_start(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (&str, (&str, &str))> {
-    move |input: &str| pair(space1, tuple((tag(arg), space1))).parse(input)
-}                           
-
-fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded(tag_start(arg), until_eof).parse(input)
+fn value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| preceded(is_tag(arg), until_eof).parse(input)
 }
 
-fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+fn rstrip_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| preceded(space1, value(arg)).parse(input)
+}
+
+fn rstrip_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| preceded(space1, tag(arg)).parse(input)
 }
 
@@ -62,29 +67,42 @@ fn unknown_part(input: &str) -> IResult<&str, Token> {
         .parse(input)
 }
 
+fn protocol(s: &str) -> IResult<&str, Token> {
+    let positive = alt((
+        map(preceded(is_tag("-p"), alpha1), |value| Value::Str(value)),
+        map(preceded(is_tag("-p"), u8), |value| Value::Int(value)),
+    ));
 
+    let negative = alt((
+        map(preceded(is_tag("-p"), alpha1), |value| Value::NegStr(value)),
+        map(preceded(is_tag("-p"), u8), |value| Value::NegInt(value)),
+    ));
 
-fn protocol(s: &str) -> IResult<&str, Value> {
-    alt((
-        map(preceded(tag_start("-p"), alpha1), |value| Value::Str(value)),
-        map(preceded(tag_start("-p"), i8), |value| {
-            Value::Int(value.try_into().unwrap())
-        }),
-        map(preceded(tag(" !"), preceded(tag_start("-p"), alpha1)), |value| {
-            Value::NegStr(value)
-        }),
-        map(preceded(tag(" !"), preceded(tag_start("-p"), i8)), |value| {
-            Value::NegInt(value.try_into().unwrap())
-        }),
-    ))(s)
+    map(
+        preceded(space1, alt((positive, preceded(tag("! "), negative)))),
+        |value| Token::Protocol(value),
+    )(s)
 }
 
-#[derive(Serialize)]
 enum Value<'a> {
     Str(&'a str),
     NegStr(&'a str),
     Int(u8),
     NegInt(u8),
+}
+
+impl<'a> Serialize for Value<'a> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Value::Str(a) => serializer.serialize_str(a),
+            Value::NegStr(a) => serializer.serialize_str(&format!("!{}", a)),
+            Value::Int(a) => serializer.serialize_str(&format!("{}", a)),
+            Value::NegInt(a) => serializer.serialize_str(&format!("!{}", a)),
+        }
+    }
 }
 
 enum Token<'a> {
@@ -134,14 +152,17 @@ impl<'a> Serialize for Tokens<'a> {
 fn parser(input: &str) -> IResult<&str, Tokens> {
     map(
         many1(alt((
-            map(first_tag_value("-A"), |value| Token::Name(value)),
-            map(tag_value("-j"), |value| Token::Jump(value)),
-            map(tag_value("-g"), |value| Token::Goto(value)),
-            map(tag_value("--log-level"), |value| Token::LogLevel(value)),
-            map(tag_value("--log-prefix"), |value| Token::LogPrefix(value)),
-            map(is_tag("--log-tcp-sequence"), |_| Token::LogTcpSequence),
-            map(is_tag("--log-tcp-options"), |_| Token::LogTcpOptions),
-            map(is_tag("--log-ip-option"), |_| Token::LogIpOption),
+            map(value("-A"), |value| Token::Name(value)),
+            map(rstrip_value("-j"), |value| Token::Jump(value)),
+            map(rstrip_value("-g"), |value| Token::Goto(value)),
+            map(rstrip_value("--log-level"), |value| Token::LogLevel(value)),
+            map(rstrip_value("--log-prefix"), |value| {
+                Token::LogPrefix(value)
+            }),
+            map(rstrip_tag("--log-tcp-sequence"), |_| Token::LogTcpSequence),
+            map(rstrip_tag("--log-tcp-options"), |_| Token::LogTcpOptions),
+            map(rstrip_tag("--log-ip-option"), |_| Token::LogIpOption),
+            protocol,
             unknown_part,
         ))),
         |value| Tokens(value),
