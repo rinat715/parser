@@ -1,13 +1,14 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    character::complete::{not_line_ending, space1},
+    character::complete::{alpha1, i8, not_line_ending, space1},
     combinator::map,
     multi::many1,
     sequence::{pair, preceded, tuple},
     IResult, Parser,
 };
-use serde::{ser::SerializeMap, Serialize, Serializer};
+use serde::{de::value, ser::SerializeMap, Serialize, Serializer};
+use serde_derive::Serialize;
 use std::str::FromStr;
 
 mod domain;
@@ -20,16 +21,6 @@ pub struct ParseEnum2Error; // TODO нормальное название
 mod tests {
     use super::*;
     use tester::tester;
-
-    // #[test]
-    // fn test_parser_new() {
-    //     let (remaining, result) = parser(" -j REJECT").unwrap();
-    //     assert_eq!(remaining, "");
-    //     match result.0.first().unwrap()  {
-
-    //     }
-    //     assert_eq!(result.0.first().unwrap(), Token::Jump("REJECT"))
-    // }
 
     #[tester("acl.toml")]
     fn test_rule(arg: &str) -> IResult<&str, d::ACLRule> {
@@ -53,8 +44,12 @@ fn first_tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| preceded(tuple((tag(arg), space1)), until_eof).parse(input)
 }
 
+fn tag_start(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (&str, (&str, &str))> {
+    move |input: &str| pair(space1, tuple((tag(arg), space1))).parse(input)
+}                           
+
 fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded(pair(space1, tuple((tag(arg), space1))), until_eof).parse(input)
+    move |input: &str| preceded(tag_start(arg), until_eof).parse(input)
 }
 
 fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
@@ -67,11 +62,36 @@ fn unknown_part(input: &str) -> IResult<&str, Token> {
         .parse(input)
 }
 
-#[derive(Clone, Debug)]
+
+
+fn protocol(s: &str) -> IResult<&str, Value> {
+    alt((
+        map(preceded(tag_start("-p"), alpha1), |value| Value::Str(value)),
+        map(preceded(tag_start("-p"), i8), |value| {
+            Value::Int(value.try_into().unwrap())
+        }),
+        map(preceded(tag(" !"), preceded(tag_start("-p"), alpha1)), |value| {
+            Value::NegStr(value)
+        }),
+        map(preceded(tag(" !"), preceded(tag_start("-p"), i8)), |value| {
+            Value::NegInt(value.try_into().unwrap())
+        }),
+    ))(s)
+}
+
+#[derive(Serialize)]
+enum Value<'a> {
+    Str(&'a str),
+    NegStr(&'a str),
+    Int(u8),
+    NegInt(u8),
+}
+
 enum Token<'a> {
     Jump(&'a str),
     Goto(&'a str),
     Name(&'a str),
+    Protocol(Value<'a>),
     Error(&'a str),
     LogLevel(&'a str),
     LogPrefix(&'a str),
@@ -102,6 +122,7 @@ impl<'a> Serialize for Tokens<'a> {
                 Token::LogTcpOptions => map.serialize_entry("log-tcp-options", "tag")?,
                 Token::LogTcpSequence => map.serialize_entry("log-tcp-sequence", "tag")?,
                 Token::Name(a) => map.serialize_entry("name", &a)?,
+                Token::Protocol(a) => map.serialize_entry("protocol", &a)?,
             }
             number += 1;
         }
