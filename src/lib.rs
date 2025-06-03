@@ -67,28 +67,49 @@ fn unknown_part(input: &str) -> IResult<&str, Token> {
         .parse(input)
 }
 
+#[derive(Clone)]
+enum Result<'a> {
+    String(&'a str),
+    Int(u8),
+}
+
+fn protocol_value(s: &str) -> IResult<&str, Result> {
+    alt((
+        map(preceded(is_tag("-p"), alpha1), |value| {
+            Result::String(value)
+        }),
+        map(
+            preceded(is_tag("-p"), nom::combinator::verify(u8, |v| v != &0)),
+            |value| Result::Int(value),
+        ),
+        nom::combinator::value(
+            Result::String("ip"),
+            preceded(is_tag("-p"), alt((tag("0"), tag("all")))),
+        ),
+    ))
+    .parse(s)
+}
+
 fn protocol(s: &str) -> IResult<&str, Token> {
-    let positive = alt((
-        map(preceded(is_tag("-p"), alpha1), |value| {
-            Token::Protocol(d::StringOperator::new(d::OperatorType::EQ, vec![value]))
-        }),
-        map(preceded(is_tag("-p"), u8), |value| {
+    let positive = map(protocol_value, |value| match value {
+        Result::Int(value) => {
             Token::ProtocolNumber(d::IntOperator::new(d::OperatorType::EQ, vec![value]))
-        }),
-    ));
+        }
+        Result::String(value) => {
+            Token::Protocol(d::StringOperator::new(d::OperatorType::EQ, vec![value]))
+        }
+    });
 
-    let negative = alt((
-        map(preceded(is_tag("-p"), alpha1), |value| {
-            Token::Protocol(d::StringOperator::new(d::OperatorType::NEQ, vec![value]))
-        }),
-        map(preceded(is_tag("-p"), u8), |value| {
+    let negative = map(protocol_value, |value| match value {
+        Result::Int(value) => {
             Token::ProtocolNumber(d::IntOperator::new(d::OperatorType::NEQ, vec![value]))
-        }),
-    ));
+        }
+        Result::String(value) => {
+            Token::Protocol(d::StringOperator::new(d::OperatorType::NEQ, vec![value]))
+        }
+    });
 
-    preceded(space1, alt((positive, preceded(tag("! "), negative))))
-    
-    (s)
+    preceded(space1, alt((positive, preceded(tag("! "), negative))))(s)
 }
 
 enum Token<'a> {

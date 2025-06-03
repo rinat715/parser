@@ -2,29 +2,33 @@
 input = " -p icmp"
 remaining = ""
 
-[test_1.expected]
-protocol = "icmp"
+[test_1.expected.protocol]
+operator = "EQ"
+values = ["icmp"]
 
 
 [test_2]
 input = " ! -p icmp"
 remaining = ""
 
-[test_2.expected]
-protocol = "!icmp"
+[test_2.expected.protocol]
+operator = "NEQ"
+values = ["icmp"]
 
 
 [test_3]
-input = " -p 0"
+input = " -p 1"
 remaining = ""
 
-[test_3.expected]
-protocol = "0"
+[test_3.expected.protocol_number]
+operator = "EQ"
+values = [1]
 
 
 [test_4]
 input = " ! -p 0"
 remaining = ""
 
-[test_4.expected]
-protocol = "!0"
+[test_4.expected.protocol]
+operator = "NEQ"
+values = ["ip"]
