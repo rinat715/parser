@@ -114,7 +114,7 @@ fn protocol(s: &str) -> IResult<&str, Token> {
 
 enum Token<'a> {
     Jump(&'a str),
-    Goto(&'a str),
+    Goto(d::ActionSetting<'a>),
     Name(&'a str),
     Protocol(d::StringOperator<'a>),
     ProtocolNumber(d::IntOperator),
@@ -163,7 +163,7 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
         many1(alt((
             map(value("-A"), |value| Token::Name(value)),
             map(rstrip_value("-j"), |value| Token::Jump(value)),
-            map(rstrip_value("-g"), |value| Token::Goto(value)),
+            map(rstrip_value("-g"), |value| Token::Goto(d::ActionSetting::new(d::ActionType::GOTO, value))),
             map(rstrip_value("--log-level"), |value| Token::LogLevel(value)),
             map(rstrip_value("--log-prefix"), |value| {
                 Token::LogPrefix(value)
@@ -187,9 +187,6 @@ impl<'a> RuleBuilder<'a> {
         Self(d::ACLRule::new(action, normalized_action, ""))
     }
 
-    fn goto(&mut self, action: &'a str) {
-        self.0.action = vec![d::ActionSetting::new(d::ActionType::GOTO, action)];
-    }
     fn action(&mut self, action: &'a str) {
         let _ = d::ActionType::from_str(action)
             .map(|value| d::ActionSetting::new(value, ""))
@@ -214,12 +211,12 @@ impl<'a> RuleBuilder<'a> {
         user_chains: &Vec<&'a str>,
     ) -> IResult<&'a str, d::ACLRule<'a>> {
         let (input, tokens) = parser(input)?;
-        let mut iter = tokens.0.iter();
+        let mut iter = tokens.0.into_iter();
 
         while let Some(item) = iter.next() {
             match item {
                 Token::Name(value) => self.0.name = value,
-                Token::Goto(value) => self.goto(value),
+                Token::Goto(value) => self.0.action = vec![value],
                 Token::Jump(value) => {
                     self.action(value);
                     self.jump(value, user_chains)
