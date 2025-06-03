@@ -179,27 +179,31 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
     .parse(input)
 }
 
-struct RuleBuilder<'a>(d::ACLRule<'a>);
+struct RuleBuilder<'a>{
+    rule: d::ACLRule<'a>,
+    action: Option<d::ActionType>,
+    option: Option<&'a str>
+}
 impl<'a> RuleBuilder<'a> {
     pub fn new() -> Self {
         let action = d::ActionSetting::new(domain::ActionType::PASS, "");
         let normalized_action = Option::None;
-        Self(d::ACLRule::new(action, normalized_action, ""))
+        Self{rule: d::ACLRule::new(action, normalized_action, ""), action: Option::None, option: Option::None}
     }
 
     fn action(&mut self, action: &'a str) {
         let _ = d::ActionType::from_str(action)
             .map(|value| d::ActionSetting::new(value, ""))
-            .map(|value| self.0.action = vec![value]);
+            .map(|value| self.rule.action = vec![value]);
     }
     fn jump(&mut self, action: &'a str, user_chains: &Vec<&'a str>) {
         user_chains.contains(&action).then_some(|value| {
-            self.0.action = vec![d::ActionSetting::new(d::ActionType::JUMP, value)]
+            self.rule.action = vec![d::ActionSetting::new(d::ActionType::JUMP, value)]
         });
     }
     fn normalized_action(&mut self) {
-        self.0.normalized_action = vec![self
-            .0
+        self.rule.normalized_action = vec![self
+            .rule
             .action
             .first()
             .and_then(|value| value.normalized_action().ok())];
@@ -215,8 +219,8 @@ impl<'a> RuleBuilder<'a> {
 
         while let Some(item) = iter.next() {
             match item {
-                Token::Name(value) => self.0.name = value,
-                Token::Goto(value) => self.0.action = vec![value],
+                Token::Name(value) => self.rule.name = value,
+                Token::Goto(value) => self.rule.action = vec![value],
                 Token::Jump(value) => {
                     self.action(value);
                     self.jump(value, user_chains)
@@ -227,7 +231,7 @@ impl<'a> RuleBuilder<'a> {
         }
 
         self.normalized_action();
-        Ok((input, self.0))
+        Ok((input, self.rule))
     }
 }
 
