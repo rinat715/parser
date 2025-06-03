@@ -1,12 +1,35 @@
 [test_1]
-input = "-A INPUT -g MY_CHAIN --ctstate RELATED,ESTABLISHED"
-remaining = " --ctstate RELATED,ESTABLISHED"
+input = "-A INPUT -g TEST --ctstate RELATED,ESTABLISHED"
+remaining = ""
 
 [test_1.expected]
-name = "INPUT"
 action_modifiers = []
-normalized_action = ["JUMP"]
+normalized_action = ["jump"]
 
 [[test_1.expected.action]]
 action = "GOTO"
+option = "TEST"
+
+[test_2]
+input = " -j MY_CHAIN"
+remaining = ""
+
+[test_2.expected]
+action_modifiers = []
+normalized_action = ["jump"]
+
+[[test_2.expected.action]]
+action = "JUMP"
 option = "MY_CHAIN"
+
+[test_3]
+input = " -j REJECT --reject-with tcp-reset"
+remaining = ""
+
+[test_3.expected]
+action_modifiers = []
+normalized_action = ["deny"]
+
+[[test_3.expected.action]]
+action = "REJECT"
+option = "tcp-reset"

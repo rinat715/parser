@@ -4,11 +4,10 @@ use nom::{
     character::complete::{alpha1, not_line_ending, space1, u8},
     combinator::map,
     multi::many1,
-    sequence::{pair, preceded, tuple},
+    sequence::{preceded, tuple},
     IResult, Parser,
 };
 use serde::{de::value, ser::SerializeMap, Serialize, Serializer};
-use serde_derive::Serialize;
 use std::str::FromStr;
 
 mod domain;
@@ -24,7 +23,7 @@ mod tests {
 
     #[tester("acl.toml")]
     fn test_rule(arg: &str) -> IResult<&str, d::ACLRule> {
-        let v = vec![];
+        let v = vec!["MY_CHAIN"];
         rule(arg, &v)
     }
 
@@ -36,6 +35,17 @@ mod tests {
     #[tester("protocol.toml")]
     fn test_protocol(arg: &str) -> IResult<&str, Tokens> {
         protocol(arg).map(|(remaining, value)| (remaining, Tokens(vec![value])))
+    }
+
+    #[test]
+    fn test_jump() {
+        let v = vec!["MY_CHAIN"];
+        assert!(v.contains(&"MY_CHAIN"));
+        let mut bulder = ActionSettingBuilder::new();
+        bulder.jump("MY_CHAIN", &v);
+        let res = bulder.build();
+        assert_eq!(res.action, d::ActionType::JUMP);
+        assert_eq!(res.option, "MY_CHAIN");
     }
 }
 
@@ -114,6 +124,7 @@ fn protocol(s: &str) -> IResult<&str, Token> {
 
 enum Token<'a> {
     Jump(&'a str),
+    RejectWith(&'a str),
     Goto(d::ActionSetting<'a>),
     Name(&'a str),
     Protocol(d::StringOperator<'a>),
@@ -142,6 +153,7 @@ impl<'a> Serialize for Tokens<'a> {
                 Token::Error(a) => map.serialize_entry(&format!("error_{}", number), &a)?,
                 Token::Goto(a) => map.serialize_entry("goto", &a)?,
                 Token::Jump(a) => map.serialize_entry("jump", &a)?,
+                Token::RejectWith(a) => map.serialize_entry("reject-with", &a)?,
                 Token::LogIpOption => map.serialize_entry("log-ip-option", "tag")?,
                 Token::LogLevel(a) => map.serialize_entry("log-level", &a)?,
                 Token::LogPrefix(a) => map.serialize_entry("log-prefix", &a)?,
@@ -163,7 +175,12 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
         many1(alt((
             map(value("-A"), |value| Token::Name(value)),
             map(rstrip_value("-j"), |value| Token::Jump(value)),
-            map(rstrip_value("-g"), |value| Token::Goto(d::ActionSetting::new(d::ActionType::GOTO, value))),
+            map(rstrip_value("--reject-with"), |value| {
+                Token::RejectWith(value)
+            }),
+            map(rstrip_value("-g"), |value| {
+                Token::Goto(d::ActionSetting::new(d::ActionType::GOTO, value))
+            }),
             map(rstrip_value("--log-level"), |value| Token::LogLevel(value)),
             map(rstrip_value("--log-prefix"), |value| {
                 Token::LogPrefix(value)
@@ -179,64 +196,105 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
     .parse(input)
 }
 
-struct RuleBuilder<'a>{
-    rule: d::ACLRule<'a>,
-    action: Option<d::ActionType>,
-    option: Option<&'a str>
+struct ActionSettingBuilder<'a>(d::ActionSetting<'a>);
+impl<'a> ActionSettingBuilder<'a> {
+    pub fn new() -> Self {
+        let default = d::ActionSetting::new(d::ActionType::PASS, "");
+        Self(default)
+    }
+    fn goto(&mut self, action: d::ActionSetting<'a>) {
+        self.0 = action
+    }
+    fn action(&mut self, action: &'a str) {
+        if let Ok(action_type) = d::ActionType::from_str(action) {
+            match action_type {
+                d::ActionType::ACCEPT
+                | d::ActionType::DROP
+                | d::ActionType::QUEUE
+                | d::ActionType::RETURN
+                | d::ActionType::LOG => self.0 = d::ActionSetting::new(action_type, ""),
+                d::ActionType::REJECT => self.0.action = action_type,
+
+                _ => !todo!(),
+            }
+        }
+    }
+    fn option(&mut self, option: &'a str) {
+        self.0.option = option
+    }
+    fn jump(&mut self, action: &'a str, user_chains: &Vec<&'a str>) {
+        user_chains
+            .contains(&action)
+            .then(|| self.0 = d::ActionSetting::new(d::ActionType::JUMP, action));
+    }
+    fn build(self) -> d::ActionSetting<'a> {
+        self.0
+    }
+}
+
+struct ACLRuleBuilder;
+impl<'a> ACLRuleBuilder {
+    fn new() -> Self {
+        Self
+    }
+    fn build(
+        &self,
+        action: d::ActionSetting<'a>,
+        normalized_action: Option<d::NormalizedAction>,
+    ) -> d::ACLRule<'a> {
+        d::ACLRule::new(vec![action], vec![normalized_action], vec![])
+    }
+}
+
+struct RuleBuilder<'a> {
+    action: ActionSettingBuilder<'a>,
+    name: Option<&'a str>,
 }
 impl<'a> RuleBuilder<'a> {
     pub fn new() -> Self {
-        let action = d::ActionSetting::new(domain::ActionType::PASS, "");
-        let normalized_action = Option::None;
-        Self{rule: d::ACLRule::new(action, normalized_action, ""), action: Option::None, option: Option::None}
-    }
-
-    fn action(&mut self, action: &'a str) {
-        let _ = d::ActionType::from_str(action)
-            .map(|value| d::ActionSetting::new(value, ""))
-            .map(|value| self.rule.action = vec![value]);
-    }
-    fn jump(&mut self, action: &'a str, user_chains: &Vec<&'a str>) {
-        user_chains.contains(&action).then_some(|value| {
-            self.rule.action = vec![d::ActionSetting::new(d::ActionType::JUMP, value)]
-        });
-    }
-    fn normalized_action(&mut self) {
-        self.rule.normalized_action = vec![self
-            .rule
-            .action
-            .first()
-            .and_then(|value| value.normalized_action().ok())];
+        Self {
+            action: ActionSettingBuilder::new(),
+            name: None,
+        }
     }
 
     fn build(
         mut self,
         input: &'a str,
         user_chains: &Vec<&'a str>,
-    ) -> IResult<&'a str, d::ACLRule<'a>> {
+    ) -> IResult<&'a str, (&'a str, d::ACLRule<'a>)> {
         let (input, tokens) = parser(input)?;
         let mut iter = tokens.0.into_iter();
 
         while let Some(item) = iter.next() {
             match item {
-                Token::Name(value) => self.rule.name = value,
-                Token::Goto(value) => self.rule.action = vec![value],
+                Token::Name(value) => self.name = Some(value),
+                Token::Goto(value) => self.action.goto(value),
                 Token::Jump(value) => {
-                    self.action(value);
-                    self.jump(value, user_chains)
+                    self.action.action(value);
+                    self.action.jump(value, user_chains)
                 }
+                Token::RejectWith(value) => self.action.option(value),
 
                 _ => (),
             }
         }
+        let action = self.action.build();
+        let normalized_action = action.normalized_action().ok();
 
-        self.normalized_action();
-        Ok((input, self.rule))
+        Ok((
+            input,
+            (
+                self.name.unwrap_or_default(),
+                ACLRuleBuilder::new().build(action, normalized_action),
+            ),
+        ))
     }
 }
 
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let builder = RuleBuilder::new();
 
-    builder.build(input, user_chains)
+    let (remain, (_, rule)) = builder.build(input, user_chains)?;
+    Ok((remain, rule))
 }

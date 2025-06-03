@@ -38,28 +38,57 @@ remaining = ""
 name = "INPUT"
 error_1 = "!"
 error_2 = "-s 10.0.0.4/32"
-protocol = "icmp"
 jump = "DROP"
+
+[test_6.expected.protocol]
+operator = "EQ"
+values = ["icmp"]
 
 [test_7]
 input = "-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
-expected.log-ip-option = "tag"
-remaining = "s"
+remaining = ""
+
+[test_7.expected]
+name = "INPUT"
+error_1 = "-m conntrack"
+error_2 = "--ctstate RELATED,ESTABLISHED"
+jump = "ACCEPT"
 
 [test_8]
 input = "-A INPUT -m recent --rcheck --seconds 60 --name DEFAULT --rsource -m limit --limit 10/sec -j LOG --log-prefix \"BG \""
-expected.log-ip-option = "tag"
-remaining = "s"
+remaining = ""
+
+[test_8.expected]
+name = "INPUT"
+error_1 = "-m recent"
+error_2 = "--rcheck"
+error_3 = "--seconds 60"
+error_4 = "--name DEFAULT"
+error_5 = "--rsource"
+error_6 = "-m limit"
+error_7 = "--limit 10/sec"
+jump = "LOG"
+log-prefix = '"BG "'
 
 [test_9]
 input = "-A INPUT -s 10.0.0.12/32 -j DROP --tcp-flags FIN,SYN,ACK ACK"
-expected.log-ip-option = "tag"
-remaining = "s"
+remaining = ""
+
+[test_9.expected]
+name = "INPUT"
+error_1 = "-s 10.0.0.12/32"
+jump = "DROP"
+error_3 = "--tcp-flags FIN,SYN,ACK ACK"
 
 [test_10]
 input = "-A OUTPUT --match-set BlockedHosts dst,dst -j DROP"
-expected.log-ip-option = "tag"
-remaining = "s"
+remaining = ""
+
+[test_10.expected]
+name = "OUTPUT"
+error_1 = "--match-set BlockedHosts dst,dst"
+jump = "DROP"
+
 
 [test_11]
 input = "-A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix \"BG \" 123\""
@@ -72,3 +101,12 @@ error_2 = "-m mac"
 error_3 = "--mac-source 00:1D:60:2E:ED:CD"
 jump = "RETURN"
 log-prefix = "\"BG \" 123\""
+
+[test_12]
+input = "-A INPUT -j REJECT --reject-with tcp-reset"
+remaining = ""
+
+[test_12.expected]
+name = "INPUT"
+jump = "REJECT"
+reject-with = "tcp-reset"

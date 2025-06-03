@@ -72,6 +72,7 @@ impl FromStr for ActionType {
 }
 
 #[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all="lowercase")]
 pub enum NormalizedAction {
     PERMIT,
     DENY,
@@ -102,8 +103,8 @@ impl TryFrom<&ActionType> for NormalizedAction {
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ActionSetting<'a> {
-    action: ActionType,
-    option: &'a str,
+    pub action: ActionType,
+    pub option: &'a str,
 }
 
 impl<'a> ActionSetting<'a> {
@@ -152,14 +153,13 @@ impl IntOperator {
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ACLRule<'a> {
     pub action_modifiers: Vec<ActionSetting<'a>>,
-    pub name: &'a str,
     pub action: Vec<ActionSetting<'a>>,
     #[serde(serialize_with = "ser_vec_options")]
     pub normalized_action:  Vec<Option<NormalizedAction>>
 }
 
 impl<'a> ACLRule<'a> {
-    pub fn new(action: ActionSetting<'a>, normalized_action: Option<NormalizedAction>,  name: &'a str) -> Self {
-        Self {action: vec![action], normalized_action: vec![normalized_action], name: name, action_modifiers: vec![]}
+    pub fn new(action: Vec<ActionSetting<'a>>, normalized_action: Vec<Option<NormalizedAction>>,  action_modifiers:  Vec<ActionSetting<'a>>) -> Self {
+        Self {action: action, normalized_action: normalized_action, action_modifiers: action_modifiers}
     }
 }
