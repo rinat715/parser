@@ -17,8 +17,11 @@ remaining = ""
 
 [test_4]
 input = " --log-ip-option\ns"
-expected.log-ip-option = "tag"
 remaining = "\ns"
+
+[test_4.expected.action_modifier_0]
+action = "log-ip-options"
+option = ""
 
 [test_5]
 input = "-A check_ours -j RETURN --log-prefix \"BG \" 123\""
@@ -27,7 +30,10 @@ remaining = ""
 [test_5.expected]
 name = "check_ours"
 jump = "RETURN"
-log-prefix = "\"BG \" 123\""
+
+[test_5.expected.action_modifier_0]
+action = "log-prefix"
+option = '"BG " 123"'
 
 
 [test_6]
@@ -36,8 +42,8 @@ remaining = ""
 
 [test_6.expected]
 name = "INPUT"
-error_1 = "!"
-error_2 = "-s 10.0.0.4/32"
+error_0 = "!"
+error_1 = "-s 10.0.0.4/32"
 jump = "DROP"
 
 [test_6.expected.protocol]
@@ -50,8 +56,8 @@ remaining = ""
 
 [test_7.expected]
 name = "INPUT"
-error_1 = "-m conntrack"
-error_2 = "--ctstate RELATED,ESTABLISHED"
+error_0 = "-m conntrack"
+error_1 = "--ctstate RELATED,ESTABLISHED"
 jump = "ACCEPT"
 
 [test_8]
@@ -60,15 +66,18 @@ remaining = ""
 
 [test_8.expected]
 name = "INPUT"
-error_1 = "-m recent"
-error_2 = "--rcheck"
-error_3 = "--seconds 60"
-error_4 = "--name DEFAULT"
-error_5 = "--rsource"
-error_6 = "-m limit"
-error_7 = "--limit 10/sec"
+error_0 = "-m recent"
+error_1 = "--rcheck"
+error_2 = "--seconds 60"
+error_3 = "--name DEFAULT"
+error_4 = "--rsource"
+error_5 = "-m limit"
+error_6 = "--limit 10/sec"
 jump = "LOG"
-log-prefix = '"BG "'
+
+[test_8.expected.action_modifier_0]
+action = "log-prefix"
+option = '"BG "'
 
 [test_9]
 input = "-A INPUT -s 10.0.0.12/32 -j DROP --tcp-flags FIN,SYN,ACK ACK"
@@ -76,9 +85,9 @@ remaining = ""
 
 [test_9.expected]
 name = "INPUT"
-error_1 = "-s 10.0.0.12/32"
+error_0 = "-s 10.0.0.12/32"
 jump = "DROP"
-error_3 = "--tcp-flags FIN,SYN,ACK ACK"
+error_1 = "--tcp-flags FIN,SYN,ACK ACK"
 
 [test_10]
 input = "-A OUTPUT --match-set BlockedHosts dst,dst -j DROP"
@@ -86,7 +95,7 @@ remaining = ""
 
 [test_10.expected]
 name = "OUTPUT"
-error_1 = "--match-set BlockedHosts dst,dst"
+error_0 = "--match-set BlockedHosts dst,dst"
 jump = "DROP"
 
 
@@ -96,11 +105,14 @@ remaining = ""
 
 [test_11.expected]
 name = "check_ours"
-error_1 = "-s 10.134.0.68/32"
-error_2 = "-m mac"
-error_3 = "--mac-source 00:1D:60:2E:ED:CD"
+error_0 = "-s 10.134.0.68/32"
+error_1 = "-m mac"
+error_2 = "--mac-source 00:1D:60:2E:ED:CD"
 jump = "RETURN"
-log-prefix = "\"BG \" 123\""
+
+[test_11.expected.action_modifier_0]
+action = "log-prefix"
+option = '"BG " 123"'
 
 [test_12]
 input = "-A INPUT -j REJECT --reject-with tcp-reset"

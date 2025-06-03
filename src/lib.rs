@@ -7,7 +7,7 @@ use nom::{
     sequence::{preceded, tuple},
     IResult, Parser,
 };
-use serde::{de::value, ser::SerializeMap, Serialize, Serializer};
+use serde::{ser::SerializeMap, Serialize, Serializer};
 use std::str::FromStr;
 
 mod domain;
@@ -130,11 +130,7 @@ enum Token<'a> {
     Protocol(d::StringOperator<'a>),
     ProtocolNumber(d::IntOperator),
     Error(&'a str),
-    LogLevel(&'a str),
-    LogPrefix(&'a str),
-    LogTcpSequence,
-    LogTcpOptions,
-    LogIpOption,
+    ActionModifier(d::ActionSetting<'a>),
 }
 
 struct Tokens<'a>(Vec<Token<'a>>);
@@ -145,25 +141,29 @@ impl<'a> Serialize for Tokens<'a> {
         S: Serializer,
     {
         let mut number = 0;
+        let mut action_modifier = 0;
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
 
         let mut iter = self.0.iter();
         while let Some(item) = iter.next() {
             match item {
-                Token::Error(a) => map.serialize_entry(&format!("error_{}", number), &a)?,
+                Token::Error(a) => {
+                    map.serialize_entry(&format!("error_{}", number), &a)?;
+                    number += 1;
+                },
                 Token::Goto(a) => map.serialize_entry("goto", &a)?,
                 Token::Jump(a) => map.serialize_entry("jump", &a)?,
                 Token::RejectWith(a) => map.serialize_entry("reject-with", &a)?,
-                Token::LogIpOption => map.serialize_entry("log-ip-option", "tag")?,
-                Token::LogLevel(a) => map.serialize_entry("log-level", &a)?,
-                Token::LogPrefix(a) => map.serialize_entry("log-prefix", &a)?,
-                Token::LogTcpOptions => map.serialize_entry("log-tcp-options", "tag")?,
-                Token::LogTcpSequence => map.serialize_entry("log-tcp-sequence", "tag")?,
+                Token::ActionModifier(a) => {
+                    map.serialize_entry(&format!("action_modifier_{}", action_modifier), &a)?;
+                    action_modifier += 1;
+                }
                 Token::Name(a) => map.serialize_entry("name", &a)?,
                 Token::Protocol(a) => map.serialize_entry("protocol", &a)?,
                 Token::ProtocolNumber(a) => map.serialize_entry("protocol_number", &a)?,
             }
-            number += 1;
+            
+            
         }
 
         map.end()
@@ -181,13 +181,21 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
             map(rstrip_value("-g"), |value| {
                 Token::Goto(d::ActionSetting::new(d::ActionType::GOTO, value))
             }),
-            map(rstrip_value("--log-level"), |value| Token::LogLevel(value)),
-            map(rstrip_value("--log-prefix"), |value| {
-                Token::LogPrefix(value)
+            map(rstrip_value("--log-level"), |value| {
+                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogLevel, value))
             }),
-            map(rstrip_tag("--log-tcp-sequence"), |_| Token::LogTcpSequence),
-            map(rstrip_tag("--log-tcp-options"), |_| Token::LogTcpOptions),
-            map(rstrip_tag("--log-ip-option"), |_| Token::LogIpOption),
+            map(rstrip_value("--log-prefix"), |value| {
+                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogPrefix, value))
+            }),
+            map(rstrip_tag("--log-tcp-sequence"), |_| {
+                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogTCPSequence, ""))
+            }),
+            map(rstrip_tag("--log-tcp-options"), |_| {
+                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogTCPOptions, ""))
+            }),
+            map(rstrip_tag("--log-ip-option"), |_| {
+                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogIPOptions, ""))
+            }),
             protocol,
             unknown_part,
         ))),
@@ -213,7 +221,9 @@ impl<'a> ActionSettingBuilder<'a> {
                 | d::ActionType::QUEUE
                 | d::ActionType::RETURN
                 | d::ActionType::LOG => self.0 = d::ActionSetting::new(action_type, ""),
-                d::ActionType::REJECT => self.0.action = action_type,
+                d::ActionType::LogPrefix | d::ActionType::LogLevel | d::ActionType::REJECT => {
+                    self.0.action = action_type
+                }
 
                 _ => !todo!(),
             }
@@ -241,20 +251,24 @@ impl<'a> ACLRuleBuilder {
         &self,
         action: d::ActionSetting<'a>,
         normalized_action: Option<d::NormalizedAction>,
+        action_modifiers:  Vec<d::ActionSetting<'a>>
     ) -> d::ACLRule<'a> {
-        d::ACLRule::new(vec![action], vec![normalized_action], vec![])
+        d::ACLRule::new(vec![action], vec![normalized_action], action_modifiers)
     }
 }
 
 struct RuleBuilder<'a> {
     action: ActionSettingBuilder<'a>,
     name: Option<&'a str>,
+    action_modifiers: Vec<d::ActionSetting<'a>>
+
 }
 impl<'a> RuleBuilder<'a> {
     pub fn new() -> Self {
         Self {
             action: ActionSettingBuilder::new(),
             name: None,
+            action_modifiers: vec![d::ActionSetting::new(domain::ActionType::LogLevel, "warning")]
         }
     }
 
@@ -275,18 +289,30 @@ impl<'a> RuleBuilder<'a> {
                     self.action.jump(value, user_chains)
                 }
                 Token::RejectWith(value) => self.action.option(value),
+                Token::ActionModifier(value) => {
+                    if value.action == d::ActionType::LogLevel {
+                        self.action_modifiers[0] = value
+                    } else {
+                        self.action_modifiers.push(value)
+                    }
+                    
+                }
 
                 _ => (),
             }
         }
         let action = self.action.build();
         let normalized_action = action.normalized_action().ok();
+        let mut action_modifiers = vec![];
+        if action.action == d::ActionType::LOG {
+            action_modifiers.extend(self.action_modifiers);
+        }
 
         Ok((
             input,
             (
                 self.name.unwrap_or_default(),
-                ACLRuleBuilder::new().build(action, normalized_action),
+                ACLRuleBuilder::new().build(action, normalized_action, action_modifiers),
             ),
         ))
     }

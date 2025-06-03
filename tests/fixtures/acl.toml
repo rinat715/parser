@@ -33,3 +33,24 @@ normalized_action = ["deny"]
 [[test_3.expected.action]]
 action = "REJECT"
 option = "tcp-reset"
+
+
+[test_4]
+input = " -A INPUT -j LOG --log-prefix \"hello guys\""
+remaining = ""
+
+[test_4.expected]
+normalized_action = [""]
+
+
+[[test_4.expected.action_modifiers]]
+action = "log-level"
+option = "warning"
+
+[[test_4.expected.action_modifiers]]
+action = "log-prefix"
+option = '"hello guys"'
+
+[[test_4.expected.action]]
+action = "LOG"
+option = ""

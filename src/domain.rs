@@ -36,12 +36,18 @@ pub enum ActionType {
     NFLOG,
     JUMP,
     #[default]
-    PASS,
+    PASS, 
+    #[serde(rename = "log-level")]
     LogLevel,
+    #[serde(rename = "log-prefix")]
     LogPrefix,
+    #[serde(rename = "log-tcp-sequence")]
     LogTCPSequence,
+    #[serde(rename = "log-tcp-options")]
     LogTCPOptions,
+    #[serde(rename = "log-ip-options")]
     LogIPOptions,
+    #[serde(rename = "log-uid")]
     LogUID
 }
 
