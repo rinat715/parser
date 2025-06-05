@@ -2,9 +2,9 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{alpha1, not_line_ending, space1, u8},
-    combinator::map,
-    multi::many1,
-    sequence::{preceded, tuple},
+    combinator::{map, map_parser, success},
+    multi::{many1, separated_list1},
+    sequence::{pair, preceded, separated_pair, tuple},
     IResult, Parser,
 };
 use serde::{ser::SerializeMap, Serialize, Serializer};
@@ -83,43 +83,78 @@ enum Result<'a> {
     Int(u8),
 }
 
+fn operator(s: &str) -> IResult<&str, d::OperatorType> {
+    alt((
+        nom::combinator::value(d::OperatorType::NEQ, rstrip_tag("!")),
+        success(d::OperatorType::EQ),
+    ))
+    .parse(s)
+}
+
+enum Int {
+    Single(u8),
+    Pair(u8, u8),
+}
+
+impl<'a> Serialize for Int {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Int::Single(v) => serializer.serialize_u8(*v),
+            Int::Pair(f, s) => serializer.serialize_str(&format!("{}:{}", f, s)),
+        }
+    }
+}
+
+fn port_value(s: &str) -> IResult<&str, Int> {
+    alt((
+        map(u8, |value| Int::Single(value)),
+        map(separated_pair(u8, tag(":"), u8), |(f, s)| Int::Pair(f, s)),
+    ))
+    .parse(s)
+}
+
+fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (d::OperatorType, Vec<Int>)> {
+    move |input: &str| {
+        map_parser(
+            rstrip_value(arg),
+            pair(
+                operator,
+                alt((
+                    map(port_value, |value| vec![value]),
+                    separated_list1(tag(","), port_value),
+                )),
+            ),
+        )
+        .parse(input)
+    }
+}
+
 fn protocol_value(s: &str) -> IResult<&str, Result> {
     alt((
-        map(preceded(is_tag("-p"), alpha1), |value| {
-            Result::String(value)
-        }),
-        map(
-            preceded(is_tag("-p"), nom::combinator::verify(u8, |v| v != &0)),
-            |value| Result::Int(value),
-        ),
         nom::combinator::value(
             Result::String("ip"),
             preceded(is_tag("-p"), alt((tag("0"), tag("all")))),
         ),
+        map(preceded(is_tag("-p"), alpha1), |value| {
+            Result::String(value)
+        }),
+        map(preceded(is_tag("-p"), u8), |value| Result::Int(value)),
     ))
     .parse(s)
 }
 
 fn protocol(s: &str) -> IResult<&str, Token> {
-    let positive = map(protocol_value, |value| match value {
-        Result::Int(value) => {
-            Token::ProtocolNumber(d::IntOperator::new(d::OperatorType::EQ, vec![value]))
-        }
-        Result::String(value) => {
-            Token::Protocol(d::StringOperator::new(d::OperatorType::EQ, vec![value]))
-        }
-    });
-
-    let negative = map(protocol_value, |value| match value {
-        Result::Int(value) => {
-            Token::ProtocolNumber(d::IntOperator::new(d::OperatorType::NEQ, vec![value]))
-        }
-        Result::String(value) => {
-            Token::Protocol(d::StringOperator::new(d::OperatorType::NEQ, vec![value]))
-        }
-    });
-
-    preceded(space1, alt((positive, preceded(tag("! "), negative))))(s)
+    map(
+        pair(operator, preceded(space1, protocol_value)),
+        |(operator, value)| match value {
+            Result::Int(value) => Token::ProtocolNumber(d::IntOperator::new(operator, vec![value])),
+            Result::String(value) => Token::Protocol(d::StringOperator::new(operator, vec![value])),
+        },
+    )
+    .parse(s)
 }
 
 enum Token<'a> {
@@ -129,6 +164,9 @@ enum Token<'a> {
     Name(&'a str),
     Protocol(d::StringOperator<'a>),
     ProtocolNumber(d::IntOperator),
+    SourcePorts((d::OperatorType, Vec<Int>)),
+    DestinationPorts((d::OperatorType, Vec<Int>)),
+    Ports((d::OperatorType, Vec<Int>)),
     Error(&'a str),
     ActionModifier(d::ActionSetting<'a>),
 }
@@ -150,7 +188,7 @@ impl<'a> Serialize for Tokens<'a> {
                 Token::Error(a) => {
                     map.serialize_entry(&format!("error_{}", number), &a)?;
                     number += 1;
-                },
+                }
                 Token::Goto(a) => map.serialize_entry("goto", &a)?,
                 Token::Jump(a) => map.serialize_entry("jump", &a)?,
                 Token::RejectWith(a) => map.serialize_entry("reject-with", &a)?,
@@ -161,9 +199,10 @@ impl<'a> Serialize for Tokens<'a> {
                 Token::Name(a) => map.serialize_entry("name", &a)?,
                 Token::Protocol(a) => map.serialize_entry("protocol", &a)?,
                 Token::ProtocolNumber(a) => map.serialize_entry("protocol_number", &a)?,
+                Token::Ports(a) => map.serialize_entry("ports", &a)?,
+                Token::SourcePorts(a) => map.serialize_entry("sports", &a)?,
+                Token::DestinationPorts(a) => map.serialize_entry("dports", &a)?,
             }
-            
-            
         }
 
         map.end()
@@ -193,9 +232,14 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
             map(rstrip_tag("--log-tcp-options"), |_| {
                 Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogTCPOptions, ""))
             }),
-            map(rstrip_tag("--log-ip-option"), |_| {
+            map(rstrip_tag("--log-ip-options"), |_| {
                 Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogIPOptions, ""))
             }),
+            map(port("--ports"), |value| Token::Ports(value)),
+            map(port("--sports"), |value| Token::SourcePorts(value)),
+            map(port("--sport"), |value| Token::SourcePorts(value)),
+            map(port("--dports"), |value| Token::DestinationPorts(value)),
+            map(port("--dport"), |value| Token::DestinationPorts(value)),
             protocol,
             unknown_part,
         ))),
@@ -251,7 +295,7 @@ impl<'a> ACLRuleBuilder {
         &self,
         action: d::ActionSetting<'a>,
         normalized_action: Option<d::NormalizedAction>,
-        action_modifiers:  Vec<d::ActionSetting<'a>>
+        action_modifiers: Vec<d::ActionSetting<'a>>,
     ) -> d::ACLRule<'a> {
         d::ACLRule::new(vec![action], vec![normalized_action], action_modifiers)
     }
@@ -260,15 +304,14 @@ impl<'a> ACLRuleBuilder {
 struct RuleBuilder<'a> {
     action: ActionSettingBuilder<'a>,
     name: Option<&'a str>,
-    action_modifiers: Vec<d::ActionSetting<'a>>
-
+    action_modifiers: Vec<d::ActionSetting<'a>>,
 }
 impl<'a> RuleBuilder<'a> {
     pub fn new() -> Self {
         Self {
             action: ActionSettingBuilder::new(),
             name: None,
-            action_modifiers: vec![d::ActionSetting::new(domain::ActionType::LogLevel, "warning")]
+            action_modifiers: vec![d::ActionSetting::new(d::ActionType::LogLevel, "warning")],
         }
     }
 
@@ -295,10 +338,13 @@ impl<'a> RuleBuilder<'a> {
                     } else {
                         self.action_modifiers.push(value)
                     }
-                    
                 }
-
-                _ => (),
+                Token::Protocol(value) => todo!(),
+                Token::ProtocolNumber(value) => todo!(),
+                Token::DestinationPorts(value) => todo!(),
+                Token::SourcePorts(value) => todo!(),
+                Token::Ports(value) => todo!(),
+                Token::Error(_) => (), // _ => println!(),
             }
         }
         let action = self.action.build();
@@ -319,8 +365,7 @@ impl<'a> RuleBuilder<'a> {
 }
 
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let builder = RuleBuilder::new();
+    let (remain, (_, rule)) = RuleBuilder::new().build(input, user_chains)?;
 
-    let (remain, (_, rule)) = builder.build(input, user_chains)?;
     Ok((remain, rule))
 }

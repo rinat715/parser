@@ -16,7 +16,7 @@ expected.name = "INPUT dfdf"
 remaining = ""
 
 [test_4]
-input = " --log-ip-option\ns"
+input = " --log-ip-options\ns"
 remaining = "\ns"
 
 [test_4.expected.action_modifier_0]

@@ -124,7 +124,7 @@ impl<'a> ActionSetting<'a> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub enum OperatorType {
     EQ,
     NEQ 

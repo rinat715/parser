@@ -42,7 +42,6 @@ remaining = ""
 [test_4.expected]
 normalized_action = [""]
 
-
 [[test_4.expected.action_modifiers]]
 action = "log-level"
 option = "warning"
@@ -54,3 +53,31 @@ option = '"hello guys"'
 [[test_4.expected.action]]
 action = "LOG"
 option = ""
+
+[test_5]
+input = " -j LOG --log-ip-options --log-tcp-sequence --log-tcp-options --log-level debug"
+remaining = ""
+
+[test_5.expected]
+normalized_action = [""]
+
+[[test_5.expected.action_modifiers]]
+action = "log-level"
+option = "debug"
+
+[[test_5.expected.action_modifiers]]
+action = "log-ip-options"
+option = ""
+
+[[test_5.expected.action_modifiers]]
+action = "log-tcp-sequence"
+option = ""
+
+[[test_5.expected.action_modifiers]]
+action = "log-tcp-options"
+option = ""
+
+[[test_5.expected.action]]
+action = "LOG"
+option = ""
+
