@@ -146,11 +146,11 @@ impl<'a> StringOperator<'a> {
 #[derive(Serialize)]
 pub struct IntOperator {
     operator: OperatorType,
-    values: Vec<u8>
+    values: Vec<u16>
 }
 
 impl IntOperator {
-    pub fn new(operator_type: OperatorType, values: Vec<u8>) -> Self {
+    pub fn new(operator_type: OperatorType, values: Vec<u16>) -> Self {
         Self { operator: operator_type, values: values }
     }
 }

@@ -1,10 +1,10 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    character::complete::{alpha1, not_line_ending, space1, u8},
-    combinator::{map, map_parser, success},
+    character::complete::{alpha1, not_line_ending, space1, u16},
+    combinator::{map, map_parser, success, verify},
     multi::{many1, separated_list1},
-    sequence::{pair, preceded, separated_pair, tuple},
+    sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
 };
 use serde::{ser::SerializeMap, Serialize, Serializer};
@@ -55,12 +55,8 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     alt((is_next, not_line_ending))(s)
 }
 
-fn is_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (&str, &str)> {
-    move |input: &str| tuple((tag(arg), space1)).parse(input)
-}
-
 fn value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded(is_tag(arg), until_eof).parse(input)
+    move |input: &str| preceded(tuple((tag(arg), space1)), until_eof).parse(input)
 }
 
 fn rstrip_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
@@ -71,16 +67,14 @@ fn rstrip_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| preceded(space1, tag(arg)).parse(input)
 }
 
+fn strip_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| preceded(space1, terminated(tag(arg), space1)).parse(input)
+}
+
 fn unknown_part(input: &str) -> IResult<&str, Token> {
     preceded(space1, until_eof)
         .map(|value| Token::Error(value))
         .parse(input)
-}
-
-#[derive(Clone)]
-enum Result<'a> {
-    String(&'a str),
-    Int(u8),
 }
 
 fn operator(s: &str) -> IResult<&str, d::OperatorType> {
@@ -91,69 +85,62 @@ fn operator(s: &str) -> IResult<&str, d::OperatorType> {
     .parse(s)
 }
 
-enum Int {
-    Single(u8),
-    Pair(u8, u8),
-}
-
-impl<'a> Serialize for Int {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            Int::Single(v) => serializer.serialize_u8(*v),
-            Int::Pair(f, s) => serializer.serialize_str(&format!("{}:{}", f, s)),
-        }
-    }
-}
-
-fn port_value(s: &str) -> IResult<&str, Int> {
+fn int_or_range_int(s: &str) -> IResult<&str, Vec<u16>> {
     alt((
-        map(u8, |value| Int::Single(value)),
-        map(separated_pair(u8, tag(":"), u8), |(f, s)| Int::Pair(f, s)),
+        map(u16::<_, nom::error::Error<&str>>, |value| vec![value]),
+        map(separated_pair(u16, tag(":"), u16), |(f, s)| vec![f, s]),
     ))
     .parse(s)
 }
 
-fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (d::OperatorType, Vec<Int>)> {
+//  IntOperator --sport 500:600 --dport 45
+fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
     move |input: &str| {
-        map_parser(
-            rstrip_value(arg),
-            pair(
-                operator,
-                alt((
-                    map(port_value, |value| vec![value]),
-                    separated_list1(tag(","), port_value),
-                )),
-            ),
+        map(
+            pair(operator, preceded(strip_tag(arg), int_or_range_int)),
+            |(operator, value)| d::IntOperator::new(operator, value),
         )
         .parse(input)
     }
 }
 
-fn protocol_value(s: &str) -> IResult<&str, Result> {
-    alt((
-        nom::combinator::value(
-            Result::String("ip"),
-            preceded(is_tag("-p"), alt((tag("0"), tag("all")))),
-        ),
-        map(preceded(is_tag("-p"), alpha1), |value| {
-            Result::String(value)
-        }),
-        map(preceded(is_tag("-p"), u8), |value| Result::Int(value)),
-    ))
-    .parse(s)
+// ! --ports 50,300:400
+fn ports(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>> {
+    move |input: &str| {
+        map(
+            pair(
+                operator,
+                preceded(strip_tag(arg), separated_list1(tag(","), int_or_range_int)),
+            ),
+            |(operator, value)| {
+                value
+                    .into_iter()
+                    .map(|i| d::IntOperator::new(operator.clone(), i))
+                    .collect()
+            },
+        )
+        .parse(input)
+    }
 }
 
 fn protocol(s: &str) -> IResult<&str, Token> {
-    map(
-        pair(operator, preceded(space1, protocol_value)),
-        |(operator, value)| match value {
-            Result::Int(value) => Token::ProtocolNumber(d::IntOperator::new(operator, vec![value])),
-            Result::String(value) => Token::Protocol(d::StringOperator::new(operator, vec![value])),
-        },
-    )
+    let string = alt((
+        nom::combinator::value("ip", preceded(strip_tag("-p"), alt((tag("0"), tag("all"))))),
+        preceded(strip_tag("-p"), alpha1),
+    ));
+
+    alt((
+        map(
+            pair(
+                operator,
+                preceded(strip_tag("-p"), verify(u16, |value| *value != 0)),
+            ),
+            |(operator, value)| Token::ProtocolNumber(d::IntOperator::new(operator, vec![value])),
+        ),
+        map(pair(operator, string), |(operator, value)| {
+            Token::Protocol(d::StringOperator::new(operator, vec![value]))
+        }),
+    ))
     .parse(s)
 }
 
@@ -164,9 +151,9 @@ enum Token<'a> {
     Name(&'a str),
     Protocol(d::StringOperator<'a>),
     ProtocolNumber(d::IntOperator),
-    SourcePorts((d::OperatorType, Vec<Int>)),
-    DestinationPorts((d::OperatorType, Vec<Int>)),
-    Ports((d::OperatorType, Vec<Int>)),
+    SourcePorts(Vec<d::IntOperator>),
+    DestinationPorts(Vec<d::IntOperator>),
+    Ports(Vec<d::IntOperator>),
     Error(&'a str),
     ActionModifier(d::ActionSetting<'a>),
 }
@@ -235,11 +222,15 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
             map(rstrip_tag("--log-ip-options"), |_| {
                 Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogIPOptions, ""))
             }),
-            map(port("--ports"), |value| Token::Ports(value)),
-            map(port("--sports"), |value| Token::SourcePorts(value)),
-            map(port("--sport"), |value| Token::SourcePorts(value)),
-            map(port("--dports"), |value| Token::DestinationPorts(value)),
-            map(port("--dport"), |value| Token::DestinationPorts(value)),
+            map(ports("--ports"), |value| Token::Ports(value)),
+            map(
+                alt((ports("--sports"), map(port("--sport"), |value| vec![value]))),
+                |value| Token::SourcePorts(value),
+            ),
+            map(
+                alt((ports("--dports"), map(port("--dport"), |value| vec![value]))),
+                |value| Token::DestinationPorts(value),
+            ),
             protocol,
             unknown_part,
         ))),

@@ -122,3 +122,41 @@ remaining = ""
 name = "INPUT"
 jump = "REJECT"
 reject-with = "tcp-reset"
+
+[test_14]
+input = "-A INPUT -j SETCLASS -p udp --dport 1 --sport 2 --ports 25 --tcp-flags FIN,SYN,ACK ACK"
+remaining = ""
+
+[test_14.expected.protocol]
+operator = "EQ"
+values = ["udp"]
+
+[test_14.expected]
+name = "INPUT"
+jump = "SETCLASS"
+error_0 = "--tcp-flags FIN,SYN,ACK ACK"
+
+
+[[test_14.expected.dports]]
+operator = "EQ"
+values = [1]
+
+[[test_14.expected.sports]]
+operator = "EQ"
+values = [2]
+
+[[test_14.expected.ports]]
+operator = "EQ"
+values = [25]
+
+[test_15]
+input = " -p udp ! --ports 25"
+remaining = ""
+
+[test_15.expected.protocol]
+operator = "EQ"
+values = ["udp"]
+
+[[test_15.expected.ports]]
+operator = "NEQ"
+values = [25]
