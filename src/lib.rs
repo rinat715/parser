@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{alpha1, not_line_ending, space1, u16},
-    combinator::{map, map_parser, success, verify},
+    combinator::{map, success, verify},
     multi::{many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
@@ -29,23 +29,12 @@ mod tests {
 
     #[tester("parser.toml")]
     fn test_parser(arg: &str) -> IResult<&str, Tokens> {
-        parser(arg)
+        parser(arg, |_| false)
     }
 
     #[tester("protocol.toml")]
     fn test_protocol(arg: &str) -> IResult<&str, Tokens> {
         protocol(arg).map(|(remaining, value)| (remaining, Tokens(vec![value])))
-    }
-
-    #[test]
-    fn test_jump() {
-        let v = vec!["MY_CHAIN"];
-        assert!(v.contains(&"MY_CHAIN"));
-        let mut bulder = ActionSettingBuilder::new();
-        bulder.jump("MY_CHAIN", &v);
-        let res = bulder.build();
-        assert_eq!(res.action, d::ActionType::JUMP);
-        assert_eq!(res.option, "MY_CHAIN");
     }
 }
 
@@ -145,9 +134,9 @@ fn protocol(s: &str) -> IResult<&str, Token> {
 }
 
 enum Token<'a> {
-    Jump(&'a str),
-    RejectWith(&'a str),
-    Goto(d::ActionSetting<'a>),
+    Action(d::ActionType),
+    ActionSetting(d::ActionSetting<'a>),
+    Option(&'a str),
     Name(&'a str),
     Protocol(d::StringOperator<'a>),
     ProtocolNumber(d::IntOperator),
@@ -159,6 +148,43 @@ enum Token<'a> {
 }
 
 struct Tokens<'a>(Vec<Token<'a>>);
+
+impl<'a> Tokens<'a> {
+    fn build(self) -> (&'a str, d::ACLRule<'a>) {
+        let mut action: ActionSetting = Default::default();
+        let mut action_modifiers = vec![d::ActionSetting::new(d::ActionType::LogLevel, "warning")];
+
+        let mut name = "";
+
+        self.0.into_iter().for_each(|i| {
+            match i {
+                Token::Name(value) => name = value,
+                Token::ActionSetting(value) => action.0 = value,
+                Token::Action(value) => action.0.action = value,
+                Token::Option(value) => action.0.option = value,
+                Token::ActionModifier(value) => {
+                    if value.action == d::ActionType::LogLevel {
+                        action_modifiers[0] = value
+                    } else {
+                        action_modifiers.push(value)
+                    }
+                }
+                Token::Protocol(value) => todo!(),
+                Token::ProtocolNumber(value) => todo!(),
+                Token::DestinationPorts(value) => todo!(),
+                Token::SourcePorts(value) => todo!(),
+                Token::Ports(value) => todo!(),
+                Token::Error(_) => (), // _ => println!(),
+            }
+        });
+
+        let mut rule: ACLRule = Default::default();
+
+        rule.action(action.build(), action_modifiers);
+
+        (name, rule.build())
+    }
+}
 
 impl<'a> Serialize for Tokens<'a> {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -176,9 +202,9 @@ impl<'a> Serialize for Tokens<'a> {
                     map.serialize_entry(&format!("error_{}", number), &a)?;
                     number += 1;
                 }
-                Token::Goto(a) => map.serialize_entry("goto", &a)?,
-                Token::Jump(a) => map.serialize_entry("jump", &a)?,
-                Token::RejectWith(a) => map.serialize_entry("reject-with", &a)?,
+                Token::ActionSetting(a) => map.serialize_entry("action_settings", &a)?,
+                Token::Action(a) => map.serialize_entry("action", a)?,
+                Token::Option(a) => map.serialize_entry("option", &a)?,
                 Token::ActionModifier(a) => {
                     map.serialize_entry(&format!("action_modifier_{}", action_modifier), &a)?;
                     action_modifier += 1;
@@ -196,16 +222,25 @@ impl<'a> Serialize for Tokens<'a> {
     }
 }
 
-fn parser(input: &str) -> IResult<&str, Tokens> {
+fn parser<F>(input: &str, is_user_chain: F) -> IResult<&str, Tokens>
+where
+    F: Fn(&str) -> bool,
+{
     map(
         many1(alt((
             map(value("-A"), |value| Token::Name(value)),
-            map(rstrip_value("-j"), |value| Token::Jump(value)),
-            map(rstrip_value("--reject-with"), |value| {
-                Token::RejectWith(value)
+            map(verify(rstrip_value("-j"), is_user_chain), |value| {
+                Token::ActionSetting(d::ActionSetting::new(d::ActionType::JUMP, value))
             }),
+            map(
+                verify(rstrip_value("-j"), |value| {
+                    d::ActionType::from_str(value).is_ok()
+                }),
+                |value| Token::Action(d::ActionType::from_str(value).unwrap()),
+            ),
+            map(rstrip_value("--reject-with"), |value| Token::Option(value)),
             map(rstrip_value("-g"), |value| {
-                Token::Goto(d::ActionSetting::new(d::ActionType::GOTO, value))
+                Token::ActionSetting(d::ActionSetting::new(d::ActionType::GOTO, value))
             }),
             map(rstrip_value("--log-level"), |value| {
                 Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogLevel, value))
@@ -239,124 +274,44 @@ fn parser(input: &str) -> IResult<&str, Tokens> {
     .parse(input)
 }
 
-struct ActionSettingBuilder<'a>(d::ActionSetting<'a>);
-impl<'a> ActionSettingBuilder<'a> {
-    pub fn new() -> Self {
-        let default = d::ActionSetting::new(d::ActionType::PASS, "");
-        Self(default)
-    }
-    fn goto(&mut self, action: d::ActionSetting<'a>) {
-        self.0 = action
-    }
-    fn action(&mut self, action: &'a str) {
-        if let Ok(action_type) = d::ActionType::from_str(action) {
-            match action_type {
-                d::ActionType::ACCEPT
-                | d::ActionType::DROP
-                | d::ActionType::QUEUE
-                | d::ActionType::RETURN
-                | d::ActionType::LOG => self.0 = d::ActionSetting::new(action_type, ""),
-                d::ActionType::LogPrefix | d::ActionType::LogLevel | d::ActionType::REJECT => {
-                    self.0.action = action_type
-                }
-
-                _ => !todo!(),
-            }
-        }
-    }
-    fn option(&mut self, option: &'a str) {
-        self.0.option = option
-    }
-    fn jump(&mut self, action: &'a str, user_chains: &Vec<&'a str>) {
-        user_chains
-            .contains(&action)
-            .then(|| self.0 = d::ActionSetting::new(d::ActionType::JUMP, action));
-    }
+struct ActionSetting<'a>(d::ActionSetting<'a>);
+impl<'a> ActionSetting<'a> {
     fn build(self) -> d::ActionSetting<'a> {
         self.0
     }
 }
 
-struct ACLRuleBuilder;
-impl<'a> ACLRuleBuilder {
-    fn new() -> Self {
-        Self
-    }
-    fn build(
-        &self,
-        action: d::ActionSetting<'a>,
-        normalized_action: Option<d::NormalizedAction>,
-        action_modifiers: Vec<d::ActionSetting<'a>>,
-    ) -> d::ACLRule<'a> {
-        d::ACLRule::new(vec![action], vec![normalized_action], action_modifiers)
+impl<'a> Default for ActionSetting<'a> {
+    fn default() -> Self {
+        Self(d::ActionSetting::new(d::ActionType::PASS, ""))
     }
 }
 
-struct RuleBuilder<'a> {
-    action: ActionSettingBuilder<'a>,
-    name: Option<&'a str>,
-    action_modifiers: Vec<d::ActionSetting<'a>>,
-}
-impl<'a> RuleBuilder<'a> {
-    pub fn new() -> Self {
-        Self {
-            action: ActionSettingBuilder::new(),
-            name: None,
-            action_modifiers: vec![d::ActionSetting::new(d::ActionType::LogLevel, "warning")],
-        }
-    }
-
-    fn build(
-        mut self,
-        input: &'a str,
-        user_chains: &Vec<&'a str>,
-    ) -> IResult<&'a str, (&'a str, d::ACLRule<'a>)> {
-        let (input, tokens) = parser(input)?;
-        let mut iter = tokens.0.into_iter();
-
-        while let Some(item) = iter.next() {
-            match item {
-                Token::Name(value) => self.name = Some(value),
-                Token::Goto(value) => self.action.goto(value),
-                Token::Jump(value) => {
-                    self.action.action(value);
-                    self.action.jump(value, user_chains)
-                }
-                Token::RejectWith(value) => self.action.option(value),
-                Token::ActionModifier(value) => {
-                    if value.action == d::ActionType::LogLevel {
-                        self.action_modifiers[0] = value
-                    } else {
-                        self.action_modifiers.push(value)
-                    }
-                }
-                Token::Protocol(value) => todo!(),
-                Token::ProtocolNumber(value) => todo!(),
-                Token::DestinationPorts(value) => todo!(),
-                Token::SourcePorts(value) => todo!(),
-                Token::Ports(value) => todo!(),
-                Token::Error(_) => (), // _ => println!(),
-            }
-        }
-        let action = self.action.build();
+struct ACLRule<'a>(d::ACLRule<'a>);
+impl<'a> ACLRule<'a> {
+    fn action(&mut self, action: d::ActionSetting<'a>, modifiers: Vec<d::ActionSetting<'a>>) {
         let normalized_action = action.normalized_action().ok();
-        let mut action_modifiers = vec![];
         if action.action == d::ActionType::LOG {
-            action_modifiers.extend(self.action_modifiers);
+            self.0.action_modifiers = modifiers
         }
+        self.0.action.push(action);
+        self.0.normalized_action.push(normalized_action);
+    }
 
-        Ok((
-            input,
-            (
-                self.name.unwrap_or_default(),
-                ACLRuleBuilder::new().build(action, normalized_action, action_modifiers),
-            ),
-        ))
+    fn build(self) -> d::ACLRule<'a> {
+        self.0
+    }
+}
+
+impl<'a> Default for ACLRule<'a> {
+    fn default() -> Self {
+        Self(d::ACLRule::new(vec![], vec![], vec![]))
     }
 }
 
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let (remain, (_, rule)) = RuleBuilder::new().build(input, user_chains)?;
+    let (remain, (name, rule)) = parser(input, |v| user_chains.contains(&v))
+        .map(|(remain, tokens)| (remain, tokens.build()))?;
 
     Ok((remain, rule))
 }
