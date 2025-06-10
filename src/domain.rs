@@ -109,8 +109,8 @@ impl TryFrom<&ActionType> for NormalizedAction {
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ActionSetting<'a> {
-    pub action: ActionType,
-    pub option: &'a str,
+    action: ActionType,
+    option: &'a str,
 }
 
 impl<'a> ActionSetting<'a> {
@@ -120,11 +120,14 @@ impl<'a> ActionSetting<'a> {
     
     pub fn normalized_action(&self) -> Result<NormalizedAction, ParseEnumError>  {
         NormalizedAction::try_from(&self.action)
-        
+    }
+
+    pub fn is_type(&self, kind: ActionType) -> bool{
+        self.action == kind
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq)]
 pub enum OperatorType {
     EQ,
     NEQ 
@@ -158,10 +161,10 @@ impl IntOperator {
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ACLRule<'a> {
-    pub action_modifiers: Vec<ActionSetting<'a>>,
-    pub action: Vec<ActionSetting<'a>>,
+    action_modifiers: Vec<ActionSetting<'a>>,
+    action: Vec<ActionSetting<'a>>,
     #[serde(serialize_with = "ser_vec_options")]
-    pub normalized_action:  Vec<Option<NormalizedAction>>
+    normalized_action:  Vec<Option<NormalizedAction>>
 }
 
 impl<'a> ACLRule<'a> {
