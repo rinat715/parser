@@ -75,6 +75,13 @@ fn unknown_part(input: &str) -> IResult<&str, Token> {
         .parse(input)
 }
 
+// struct Negative(bool);
+// impl Negative {
+//     fn () {
+        
+//     }
+// }
+
 fn is_neg(s: &str) -> IResult<&str, bool> { // TODO option
     map(opt(rstrip_tag("!")), |value| value.is_some()).parse(s)
 }
@@ -94,7 +101,10 @@ fn int(s: &str) -> IResult<&str, Int> {
 }
 
 fn int_operator(is_neg: bool, value: Int) -> d::IntOperator {
-    
+    match value {
+        Int::Single(value) => d::IntOperator::new(is_neg.then(||d::OperatorType::NEQ), values)
+        
+    }
 }
 
 //  IntOperator --sport 500:600 --dport 45
