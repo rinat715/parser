@@ -20,6 +20,13 @@ where
 }
 
 
+pub trait Builder {
+    type Result;
+
+    fn build(self) -> Self::Result;
+}
+
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnumError; // TODO нормальное название 
@@ -130,7 +137,9 @@ impl<'a> ActionSetting<'a> {
 #[derive(Serialize, Clone, PartialEq)]
 pub enum OperatorType {
     EQ,
-    NEQ 
+    NEQ,
+    RANGE,
+    NotRange
 }
 
 
@@ -146,6 +155,21 @@ impl<'a> StringOperator<'a> {
     }
 }
 
+pub trait BuildIntOperator {
+    fn set_operator(&mut self, operator: OperatorType) -> &mut Self;
+
+    fn set_values(&mut self, values: Vec<u16>) -> &mut Self;
+}
+
+pub trait RangeIntOperator {
+    fn range(&self) -> OperatorType;
+}
+
+pub trait SingleIntOperator {
+    fn single(&self) -> OperatorType;
+}
+
+
 #[derive(Serialize)]
 pub struct IntOperator {
     operator: OperatorType,
@@ -158,6 +182,16 @@ impl IntOperator {
     }
 }
 
+impl BuildIntOperator for IntOperator {
+    fn set_operator(&mut self, operator: OperatorType) -> &mut Self {
+        self.operator = operator;
+        self
+    }
+    fn set_values(&mut self, values: Vec<u16>) -> &mut Self {
+        self.values.extend(values);
+        self
+    }
+}
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ACLRule<'a> {

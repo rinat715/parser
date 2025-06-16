@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{alpha1, not_line_ending, space1, u16},
-    combinator::{map, success, verify, opt},
+    combinator::{map, opt, success, verify},
     multi::{many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
@@ -14,6 +14,9 @@ use std::str::FromStr;
 mod domain;
 use domain as d;
 
+use crate::domain::Builder;
+use crate::domain::RangeIntOperator;
+use crate::domain::SingleIntOperator;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnum2Error; // TODO нормальное название
@@ -43,7 +46,10 @@ mod tests {
     fn test_flag() {
         assert_eq!(flag("SYN").unwrap(), ("", "SYN"));
         assert_eq!(flags("SYN").unwrap(), ("", vec!["SYN"]));
-        assert_eq!(flags("FIN,SYN,ACK").unwrap(), ("", vec!["FIN","SYN","ACK"]))
+        assert_eq!(
+            flags("FIN,SYN,ACK").unwrap(),
+            ("", vec!["FIN", "SYN", "ACK"])
+        )
     }
 }
 
@@ -75,69 +81,127 @@ fn unknown_part(input: &str) -> IResult<&str, Token> {
         .parse(input)
 }
 
-// struct Negative(bool);
-// impl Negative {
-//     fn () {
-        
+#[derive(Serialize, Clone, PartialEq)]
+struct Negative(bool);
+impl Negative {
+    fn parse(s: &str) -> IResult<&str, Self> {
+        map(opt(rstrip_tag("!")), |value| Self(value.is_some())).parse(s)
+    }
+}
+
+impl d::RangeIntOperator for Negative {
+    fn range(&self) -> d::OperatorType {
+        match self.0 {
+            true => d::OperatorType::NotRange,
+            false => d::OperatorType::RANGE,
+        }
+    }
+}
+
+impl d::SingleIntOperator for Negative {
+    fn single(&self) -> d::OperatorType {
+        match self.0 {
+            true => d::OperatorType::NEQ,
+            false => d::OperatorType::EQ,
+        }
+    }
+}
+
+// struct RangePort {
+//     operator: RangeOperatorType,
+//     first: u16,
+//     second: u16,
+// }
+
+// impl RangePort {
+//     fn new(operator: RangeOperatorType, first: u16, second: u16) -> Self {
+//         Self {
+//             operator: operator,
+//             first: first,
+//             second: second,
+//         }
 //     }
 // }
 
-fn is_neg(s: &str) -> IResult<&str, bool> { // TODO option
-    map(opt(rstrip_tag("!")), |value| value.is_some()).parse(s)
-}
+// impl d::Builder for RangePort {
+//     type Result = d::IntOperator;
+//     fn build(self) -> Self::Result {
+//         d::IntOperator::new(
+//             self.operator.try_into().unwrap(),
+//             vec![self.first, self.second],
+//         )
+//     }
+// }
 
-
-enum Int {
+enum SingleOrRangeInt {
     Single(u16),
-    Range(u16, u16)
+    Range(u16, u16),
 }
-
-fn int(s: &str) -> IResult<&str, Int> {
-    alt((
-        map(u16::<_, nom::error::Error<&str>>, |value| Int::Single(value)),
-        map(separated_pair(u16, tag(":"), u16), |(f, s)| Int::Range(f, s)),
-    ))
-    .parse(s)
-}
-
-fn int_operator(is_neg: bool, value: Int) -> d::IntOperator {
-    match value {
-        Int::Single(value) => d::IntOperator::new(is_neg.then(||d::OperatorType::NEQ), values)
-        
+impl SingleOrRangeInt {
+    fn parse(sep: &'static str) -> impl Fn(&str) -> IResult<&str, Self> {
+        move |input: &str| {
+            alt((
+                map(u16::<_, nom::error::Error<&str>>, |value| {
+                    Self::Single(value)
+                }),
+                map(separated_pair(u16, tag(sep), u16), |(f, s)| {
+                    Self::Range(f, s)
+                }),
+            ))
+            .parse(input)
+        }
     }
 }
 
-//  IntOperator --sport 500:600 --dport 45
-fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
-    move |input: &str| {
-        map(
-            pair(operator, preceded(strip_tag(arg), int)),
-            |(operator, value)| d::IntOperator::new(operator, value),
-        )
-        .parse(input)
-    }
-}
+struct PortParser;
 
-// ! --ports 50,300:400
-// --ports 50
-fn ports(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>> {
-    move |input: &str| {
-        alt((
+impl PortParser {
+    fn build<O>(operator: O, value: SingleOrRangeInt) -> d::IntOperator
+    where
+        O: SingleIntOperator + RangeIntOperator,
+    {
+        match value {
+            SingleOrRangeInt::Single(v) => d::IntOperator::new(operator.single(), vec![v]),
+            SingleOrRangeInt::Range(f, s) => d::IntOperator::new(operator.range(), vec![f, s]),
+        }
+    }
+    //  IntOperator --sport 500:600 --dport 45
+    fn parse(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
+        move |input: &str| {
             map(
                 pair(
-                    operator,
-                    preceded(strip_tag(arg), separated_list1(tag(","), int)),
+                    Negative::parse,
+                    preceded(strip_tag(arg), SingleOrRangeInt::parse(":")),
                 ),
-                |(operator, value)| {
-                    value
-                        .into_iter()
-                        .map(|i| d::IntOperator::new(operator.clone(), i))
-                        .collect()
-                },
-            ),
-            map(port(arg), |value| vec![value]),
-        ))
-        .parse(input)
+                |(operator, value)| Self::build(operator, value),
+            )
+            .parse(input)
+        }
+    }
+    // ! --ports 50,300:400
+    // --ports 50
+    fn parse_vec(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>> {
+        move |input: &str| {
+            alt((
+                map(
+                    pair(
+                        Negative::parse,
+                        preceded(
+                            strip_tag(arg),
+                            separated_list1(tag(","), SingleOrRangeInt::parse(":")),
+                        ),
+                    ),
+                    |(operator, value)| {
+                        value
+                            .into_iter()
+                            .map(|i| Self::build(operator.clone(), i))
+                            .collect()
+                    },
+                ),
+                map(Self::parse(arg), |value| vec![value]),
+            ))
+            .parse(input)
+        }
     }
 }
 
@@ -154,26 +218,34 @@ fn flags(s: &str) -> IResult<&str, Vec<&str>> {
     alt((
         separated_list1(tag(","), flag),
         map(flag, |value| vec![value]),
-    )).parse(s)
+    ))
+    .parse(s)
 }
 //  --tcp-flags FIN,SYN,ACK ACK
 // ! --tcp-flags FIN,SYN,ACK ACK
 fn tcp_flag(s: &str) -> IResult<&str, (d::StringOperator, d::StringOperator)> {
     map(
         pair(
-            operator,
+            Negative::parse,
             preceded(
                 strip_tag("--tcp-flags"),
-                separated_pair(flags, space1, flags)
+                separated_pair(flags, space1, flags),
             ),
         ),
         |(operator, value)| {
-            if operator == d::OperatorType::EQ {
-                let second = d::StringOperator::new(d::OperatorType::NEQ, value.0.into_iter().filter(|x| !value.1.contains(x) ).collect());
+            let eg_neg: EqNeg = operator.into();
+            if std::convert::Into::<d::OperatorType>::into(eg_neg) == d::OperatorType::EQ {
+                let second = d::StringOperator::new(
+                    d::OperatorType::NEQ,
+                    value
+                        .0
+                        .into_iter()
+                        .filter(|x| !value.1.contains(x))
+                        .collect(),
+                );
                 let first = d::StringOperator::new(d::OperatorType::EQ, value.1);
-                return (first, second)
-            }
-            else {
+                return (first, second);
+            } else {
                 !todo!("not realize neg")
             }
         },
@@ -181,27 +253,45 @@ fn tcp_flag(s: &str) -> IResult<&str, (d::StringOperator, d::StringOperator)> {
     .parse(s)
 }
 
+struct Protocol;
+impl Protocol {
+    fn build<O>(operator: O, value: &str) -> d::StringOperator
+    where
+        O: SingleIntOperator,
+    {
+        d::StringOperator::new(operator.single(), vec![value])
+    }
+    fn parse(s: &str) -> IResult<&str, d::StringOperator> {
+        let parser = alt((
+            nom::combinator::value("ip", preceded(strip_tag("-p"), alt((tag("0"), tag("all"))))),
+            preceded(strip_tag("-p"), alpha1),
+        ));
 
+        map(pair(Negative::parse, parser), |(operator, value)| {
+            Self::build(operator, value)
+        })
+        .parse(s)
+    }
+}
 
-fn protocol(s: &str) -> IResult<&str, Token> {
-    let string = alt((
-        nom::combinator::value("ip", preceded(strip_tag("-p"), alt((tag("0"), tag("all"))))),
-        preceded(strip_tag("-p"), alpha1),
-    ));
-
-    alt((
+struct ProtocolNumber;
+impl ProtocolNumber {
+    fn build<O>(operator: O, value: u16) -> d::IntOperator
+    where
+        O: SingleIntOperator,
+    {
+        d::IntOperator::new(operator.single(), vec![value])
+    }
+    fn parse(s: &str) -> IResult<&str, d::IntOperator> {
         map(
             pair(
-                operator,
+                Negative::parse,
                 preceded(strip_tag("-p"), verify(u16, |value| *value != 0)),
             ),
-            |(operator, value)| Token::ProtocolNumber(d::IntOperator::new(operator, vec![value])),
-        ),
-        map(pair(operator, string), |(operator, value)| {
-            Token::Protocol(d::StringOperator::new(operator, vec![value]))
-        }),
-    ))
-    .parse(s)
+            |(operator, value)| Self::build(operator, value),
+        )
+        .parse(s)
+    }
 }
 
 enum Token<'a> {
@@ -216,7 +306,7 @@ enum Token<'a> {
     Ports(Vec<d::IntOperator>),
     Error(&'a str),
     ActionModifier(d::ActionSetting<'a>), // TODO  переписать на ActionSetting
-    TCPFlags((d::StringOperator<'a>,  d::StringOperator<'a>)),
+    TCPFlags((d::StringOperator<'a>, d::StringOperator<'a>)),
 }
 
 struct ActionModifiers<'a>(Vec<d::ActionSetting<'a>>);
