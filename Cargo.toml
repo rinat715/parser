@@ -9,4 +9,5 @@ serde = "1.0.219"
 serde_derive = "1.0.219"
 toml = {version = "0.8.22",  features = ["preserve_order"] }
 tester = { path = "tester" }
+domain = { path = "domain" }
 

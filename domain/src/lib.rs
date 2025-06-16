@@ -3,7 +3,6 @@ use std::str::FromStr;
 use serde::{ Serialize, Serializer, ser::SerializeSeq};
 
 
-
 fn ser_vec_options<S, T>(values: &Vec<Option<T>>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,

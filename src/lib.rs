@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{alpha1, not_line_ending, space1, u16},
-    combinator::{map, opt, success, verify},
+    combinator::{map, opt, verify},
     multi::{many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
@@ -11,12 +11,12 @@ use serde::{ser::SerializeMap, Serialize, Serializer};
 use serde_derive::Serialize;
 use std::str::FromStr;
 
-mod domain;
-use domain as d;
 
-use crate::domain::Builder;
-use crate::domain::RangeIntOperator;
-use crate::domain::SingleIntOperator;
+use domain as d;
+use d::RangeIntOperator;
+use d::SingleIntOperator;
+
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnum2Error; // TODO нормальное название
@@ -38,8 +38,8 @@ mod tests {
     }
 
     #[tester("protocol.toml")]
-    fn test_protocol(arg: &str) -> IResult<&str, Tokens> {
-        protocol(arg).map(|(remaining, value)| (remaining, Tokens(vec![value])))
+    fn test_protocol(arg: &str) -> IResult<&str, d::StringOperator> {
+        Protocol::parse(arg)
     }
 
     #[test]
@@ -106,32 +106,6 @@ impl d::SingleIntOperator for Negative {
         }
     }
 }
-
-// struct RangePort {
-//     operator: RangeOperatorType,
-//     first: u16,
-//     second: u16,
-// }
-
-// impl RangePort {
-//     fn new(operator: RangeOperatorType, first: u16, second: u16) -> Self {
-//         Self {
-//             operator: operator,
-//             first: first,
-//             second: second,
-//         }
-//     }
-// }
-
-// impl d::Builder for RangePort {
-//     type Result = d::IntOperator;
-//     fn build(self) -> Self::Result {
-//         d::IntOperator::new(
-//             self.operator.try_into().unwrap(),
-//             vec![self.first, self.second],
-//         )
-//     }
-// }
 
 enum SingleOrRangeInt {
     Single(u16),
@@ -233,8 +207,7 @@ fn tcp_flag(s: &str) -> IResult<&str, (d::StringOperator, d::StringOperator)> {
             ),
         ),
         |(operator, value)| {
-            let eg_neg: EqNeg = operator.into();
-            if std::convert::Into::<d::OperatorType>::into(eg_neg) == d::OperatorType::EQ {
+            if operator.single() == d::OperatorType::EQ {
                 let second = d::StringOperator::new(
                     d::OperatorType::NEQ,
                     value
@@ -439,16 +412,17 @@ where
             map(rstrip_tag("--log-ip-options"), |_| {
                 Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogIPOptions, ""))
             }),
-            map(ports("--ports"), |value| Token::Ports(value)),
+            map(PortParser::parse_vec("--ports"), |value| Token::Ports(value)),
             map(
-                alt((ports("--sports"), map(port("--sport"), |value| vec![value]))),
+                alt((PortParser::parse_vec("--sports"), map(PortParser::parse("--sport"), |value| vec![value]))),
                 |value| Token::SourcePorts(value),
             ),
             map(
-                alt((ports("--dports"), map(port("--dport"), |value| vec![value]))),
+                alt((PortParser::parse_vec("--dports"), map(PortParser::parse("--dport"), |value| vec![value]))),
                 |value| Token::DestinationPorts(value),
             ),
-            protocol,
+            map(Protocol::parse, |value|Token::Protocol(value)),
+            map(ProtocolNumber::parse, |value|Token::ProtocolNumber(value)),
             map(tcp_flag, |value| Token::TCPFlags(value)),
             unknown_part,
         ))),
