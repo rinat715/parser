@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, not_line_ending, space1, u16},
-    combinator::{map, map_parser, opt, peek, rest_len, value, verify},
+    combinator::{map, map_parser, opt, peek, rest_len, value, verify, recognize, not, eof},
     multi::{many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
@@ -37,12 +37,12 @@ mod tests {
 
     #[tester("protocol.toml")]
     fn test_protocol(arg: &str) -> IResult<&str, d::StringOperator> {
-        Protocol::parse(arg)
+        protocol(arg)
     }
 
     #[tester("protocol_number.toml")]
     fn test_protocol_number(arg: &str) -> IResult<&str, d::IntOperator> {
-        ProtocolNumber::parse(arg)
+        protocol_number(arg)
     }
 
     #[test]
@@ -55,19 +55,26 @@ mod tests {
         )
     }
 
-
     #[test]
     fn test_until_eof() {
         let (remaining, result) = until_eof("").unwrap();
         assert_eq!(remaining, "");
         assert_eq!(result, "");
-        
-        let (remaining, result) = until_eof("-A INPUT -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK").unwrap();
-        assert_eq!(remaining, " -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK");
+
+        let (remaining, result) =
+            until_eof("-A INPUT -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK").unwrap();
+        assert_eq!(
+            remaining,
+            " -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK"
+        );
         assert_eq!(result, "-A INPUT");
 
-        let (remaining, result) = until_eof("-A INPUT ! -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK").unwrap();
-        assert_eq!(remaining, " ! -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK");
+        let (remaining, result) =
+            until_eof("-A INPUT ! -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK").unwrap();
+        assert_eq!(
+            remaining,
+            " ! -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK"
+        );
         assert_eq!(result, "-A INPUT");
 
         let (remaining, result) = until_eof("-A\ndf").unwrap();
@@ -75,21 +82,36 @@ mod tests {
         assert_eq!(result, "-A");
     }
 
+    #[test]
+    fn test_unknown_part() {
+        let (remaining, result) = unknown_part(" ").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(result, " ");
 
+        // let (remaining, result) = unknown_part("").unwrap();
+        // assert_eq!(remaining, "");
+        // assert_eq!(result, "");
 
+        let (remaining, result) = unknown_part(" --match-set BlockedHosts dst,dst -j DROP").unwrap();
+        assert_eq!(remaining, " -j DROP");
+        assert_eq!(result, " --match-set BlockedHosts dst,dst");
+
+        let (remaining, result) = unknown_part(" --match-set BlockedHosts dst,dst").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(result, " --match-set BlockedHosts dst,dst");
+    }
 }
 
-
 fn until_eof(s: &str) -> IResult<&str, &str> {
-    // тут лучше взять регулярку наверное 
+    // тут лучше взять регулярку наверное
 
     let res1 = map_parser(
         peek(take_until::<&str, &str, nom::error::Error<&str>>(" !")), // peek клонирует s: &str
-        rest_len, // обычный len  только обернутый в trait Parser
+        rest_len, // обычный len  только обернутый в trait InputLength
     )
     .parse(s);
     let res2 = map_parser(
-        peek(take_until::<&str, &str, nom::error::Error<&str>>(" -")),  // внутри take_until std str.find обернутый в FindSubstring
+        peek(take_until::<&str, &str, nom::error::Error<&str>>(" -")), // внутри take_until std str.find обернутый в FindSubstring
         rest_len,
     )
     .parse(s);
@@ -101,7 +123,6 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
         (Err(_), Err(_)) => not_line_ending.parse(s),
     }
 }
-
 
 fn name(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| preceded(tuple((tag(arg), space1)), until_eof).parse(input)
@@ -119,10 +140,9 @@ fn strip_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| preceded(space1, terminated(tag(arg), space1)).parse(input)
 }
 
-fn unknown_part(input: &str) -> IResult<&str, Token> {
-    preceded(space1, until_eof)
-        .map(|value| Token::Error(value))
-        .parse(input)
+fn unknown_part(input: &str) -> IResult<&str, &str> {
+    not(eof).parse(input)?;
+    recognize(pair(opt(alt((tag(" -"), tag(" !")))), until_eof)).parse(input)
 }
 
 #[derive(Serialize, Clone, PartialEq)]
@@ -187,40 +207,35 @@ impl PortParser {
             SingleOrRangeInt::Range(f, s) => d::IntOperator::new(operator.range(), vec![f, s]),
         }
     }
+    fn port(s: &str) -> IResult<&str, SingleOrRangeInt> {
+        SingleOrRangeInt::parse(":").parse(s)
+    }
+
     //  IntOperator --sport 500:600 --dport 45
-    fn parse(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
+    fn parse_single(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
         move |input: &str| {
-            map(
-                pair(
-                    Negative::parse,
-                    preceded(strip_tag(arg), SingleOrRangeInt::parse(":")),
-                ),
-                |(operator, value)| Self::build(operator, value),
-            )
-            .parse(input)
+            let value = preceded(strip_tag(arg), Self::port);
+            let parser = pair(Negative::parse, value);
+
+            map(parser, |(operator, value)| Self::build(operator, value)).parse(input)
         }
     }
     // ! --ports 50,300:400
     // --ports 50
     fn parse_vec(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>> {
         move |input: &str| {
+            let ports = separated_list1(tag(","), Self::port);
+            let tag = preceded(strip_tag(arg), ports);
+            let parser = pair(Negative::parse, tag);
+
             alt((
-                map(
-                    pair(
-                        Negative::parse,
-                        preceded(
-                            strip_tag(arg),
-                            separated_list1(tag(","), SingleOrRangeInt::parse(":")),
-                        ),
-                    ),
-                    |(operator, value)| {
-                        value
-                            .into_iter()
-                            .map(|i| Self::build(operator.clone(), i))
-                            .collect()
-                    },
-                ),
-                map(Self::parse(arg), |value| vec![value]),
+                map(parser, |(operator, value)| {
+                    value
+                        .into_iter()
+                        .map(|i| Self::build(operator.clone(), i))
+                        .collect()
+                }),
+                map(Self::parse_single(arg), |value| vec![value]),
             ))
             .parse(input)
         }
@@ -290,33 +305,26 @@ impl TCPFlagsParser {
     }
 }
 
-struct Protocol;
-impl Protocol {
-    fn parse(s: &str) -> IResult<&str, d::StringOperator> {
-        let parser = alt((
-            nom::combinator::value("ip", preceded(strip_tag("-p"), alt((tag("0"), tag("all"))))),
-            preceded(strip_tag("-p"), alpha1),
-        ));
+fn protocol(s: &str) -> IResult<&str, d::StringOperator> {
+    let cond = alt((tag("0"), tag("all")));
+    let ip = nom::combinator::value("ip", preceded(strip_tag("-p"), cond));
 
-        map(pair(single_operator, parser), |(operator, value)| {
-            d::StringOperator::new(operator, vec![value])
-        })
-        .parse(s)
-    }
+    let value = preceded(strip_tag("-p"), alpha1);
+
+    map(
+        pair(single_operator, alt((ip, value))),
+        |(operator, value)| d::StringOperator::new(operator, vec![value]),
+    )
+    .parse(s)
 }
 
-struct ProtocolNumber;
-impl ProtocolNumber {
-    fn parse(s: &str) -> IResult<&str, d::IntOperator> {
-        map(
-            pair(
-                single_operator,
-                preceded(strip_tag("-p"), verify(u16, |value| *value != 0)),
-            ),
-            |(operator, value)| d::IntOperator::new(operator, vec![value]),
-        )
-        .parse(s)
-    }
+fn protocol_number(s: &str) -> IResult<&str, d::IntOperator> {
+    let value = preceded(strip_tag("-p"), verify(u16, |value| *value != 0));
+
+    map(pair(single_operator, value), |(operator, value)| {
+        d::IntOperator::new(operator, vec![value])
+    })
+    .parse(s)
 }
 
 enum Token<'a> {
@@ -470,21 +478,21 @@ where
             map(
                 alt((
                     PortParser::parse_vec("--sports"),
-                    map(PortParser::parse("--sport"), |value| vec![value]),
+                    map(PortParser::parse_single("--sport"), |value| vec![value]),
                 )),
                 |value| Token::SourcePorts(value),
             ),
             map(
                 alt((
                     PortParser::parse_vec("--dports"),
-                    map(PortParser::parse("--dport"), |value| vec![value]),
+                    map(PortParser::parse_single("--dport"), |value| vec![value]),
                 )),
                 |value| Token::DestinationPorts(value),
             ),
-            map(Protocol::parse, |value| Token::Protocol(value)),
-            map(ProtocolNumber::parse, |value| Token::ProtocolNumber(value)),
+            map(protocol, |value| Token::Protocol(value)),
+            map(protocol_number, |value| Token::ProtocolNumber(value)),
             map(TCPFlagsParser::parse, |value| Token::TCPFlags(value)),
-            unknown_part,
+            map(unknown_part, |value| Token::Error(value)),
         ))),
         |value| Tokens(value),
     )
