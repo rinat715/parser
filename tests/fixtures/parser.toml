@@ -87,15 +87,14 @@ remaining = ""
 name = "INPUT"
 error_0 = "-s 10.0.0.12/32"
 action = "DROP"
-error_1 = "--tcp-flags FIN,SYN,ACK ACK"
+
+[[test_9.expected.tcp-flags]]
+operator = "NEQ"
+values = ["RST", "URG", "PSH"]
 
 [[test_9.expected.tcp-flags]]
 operator = "EQ"
 values = ["ACK"]
-
-[[test_9.expected.tcp-flags]]
-operator = "NEQ"
-values = ["FIN", "SYN"]
 
 [test_10]
 input = "-A OUTPUT --match-set BlockedHosts dst,dst -j DROP"
@@ -156,12 +155,12 @@ operator = "EQ"
 values = [25]
 
 [[test_14.expected.tcp-flags]]
-operator = "EQ"
-values = ["ACK"]
-
-[[test_14.expected.tcp-flags]]
 operator = "NEQ"
 values = ["FIN", "SYN"]
+
+[[test_14.expected.tcp-flags]]
+operator = "EQ"
+values = ["ACK"]
 
 [test_15]
 input = " -p udp ! --ports 25"

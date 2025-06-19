@@ -1,0 +1,7 @@
+[test_1]
+input = " -p 1"
+remaining = ""
+
+[test_1.expected]
+operator = "EQ"
+values = [1]

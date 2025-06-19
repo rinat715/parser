@@ -1,22 +1,20 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_until},
+    bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, not_line_ending, space1, u16},
-    combinator::{map, opt, verify},
+    combinator::{map, map_parser, opt, peek, rest_len, value, verify},
     multi::{many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
 };
 use serde::{ser::SerializeMap, Serialize, Serializer};
 use serde_derive::Serialize;
+use std::cmp;
 use std::str::FromStr;
 
-
-use domain as d;
 use d::RangeIntOperator;
 use d::SingleIntOperator;
-
-
+use domain as d;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnum2Error; // TODO нормальное название
@@ -42,22 +40,68 @@ mod tests {
         Protocol::parse(arg)
     }
 
+    #[tester("protocol_number.toml")]
+    fn test_protocol_number(arg: &str) -> IResult<&str, d::IntOperator> {
+        ProtocolNumber::parse(arg)
+    }
+
     #[test]
     fn test_flag() {
-        assert_eq!(flag("SYN").unwrap(), ("", "SYN"));
-        assert_eq!(flags("SYN").unwrap(), ("", vec!["SYN"]));
+        assert_eq!(TCPFlagsParser::parse_item("SYN").unwrap(), ("", "SYN"));
+        assert_eq!(TCPFlagsParser::flags("SYN").unwrap(), ("", vec!["SYN"]));
         assert_eq!(
-            flags("FIN,SYN,ACK").unwrap(),
+            TCPFlagsParser::flags("FIN,SYN,ACK").unwrap(),
             ("", vec!["FIN", "SYN", "ACK"])
         )
     }
+
+
+    #[test]
+    fn test_until_eof() {
+        let (remaining, result) = until_eof("").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(result, "");
+        
+        let (remaining, result) = until_eof("-A INPUT -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK").unwrap();
+        assert_eq!(remaining, " -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK");
+        assert_eq!(result, "-A INPUT");
+
+        let (remaining, result) = until_eof("-A INPUT ! -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK").unwrap();
+        assert_eq!(remaining, " ! -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK");
+        assert_eq!(result, "-A INPUT");
+
+        let (remaining, result) = until_eof("-A\ndf").unwrap();
+        assert_eq!(remaining, "\ndf");
+        assert_eq!(result, "-A");
+    }
+
+
+
 }
+
 
 fn until_eof(s: &str) -> IResult<&str, &str> {
-    let is_next = alt((take_until(" !"), take_until(" -")));
+    // тут лучше взять регулярку наверное 
 
-    alt((is_next, not_line_ending))(s)
+    let res1 = map_parser(
+        peek(take_until::<&str, &str, nom::error::Error<&str>>(" !")), // peek клонирует s: &str
+        rest_len, // обычный len  только обернутый в trait Parser
+    )
+    .parse(s);
+    let res2 = map_parser(
+        peek(take_until::<&str, &str, nom::error::Error<&str>>(" -")),
+        rest_len,
+    )
+    .parse(s);
+
+    match (res1, res2) {
+        (Ok((_, len1)), Ok((_, len2))) => take(cmp::min(len1, len2)).parse(s),
+        (Ok((_, len1)), Err(_)) => take(len1).parse(s),
+        (Err(_), Ok((_, len2))) => take(len2).parse(s),
+        (Err(_), Err(_)) => not_line_ending.parse(s),
+    }
 }
+
 
 fn name(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
     move |input: &str| preceded(tuple((tag(arg), space1)), until_eof).parse(input)
@@ -105,6 +149,10 @@ impl d::SingleIntOperator for Negative {
             false => d::OperatorType::EQ,
         }
     }
+}
+
+fn single_operator(s: &str) -> IResult<&str, d::OperatorType> {
+    map(Negative::parse, |value| value.single()).parse(s)
 }
 
 enum SingleOrRangeInt {
@@ -181,67 +229,77 @@ impl PortParser {
 
 // --tcp-flags
 
-static TCP_FLAGS: [&'static str; 8] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH", "ALL", "NONE"];
 static TCP_FLAGS_ALL: [&'static str; 6] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH"];
 
-fn flag(s: &str) -> IResult<&str, &str> {
-    verify(alpha1, |value| TCP_FLAGS.contains(value)).parse(s)
-}
+struct TCPFlagsParser;
+impl TCPFlagsParser {
+    fn parse_all(s: &str) -> IResult<&str, Vec<&str>> {
+        let mut res: Vec<&str> = Vec::with_capacity(6);
+        res.extend(TCP_FLAGS_ALL);
+        tag("ALL").parse(s).map(|(i, _)| (i, res))
+    }
 
-fn flags(s: &str) -> IResult<&str, Vec<&str>> {
-    alt((
-        separated_list1(tag(","), flag),
-        map(flag, |value| vec![value]),
-    ))
-    .parse(s)
-}
-//  --tcp-flags FIN,SYN,ACK ACK
-// ! --tcp-flags FIN,SYN,ACK ACK
-fn tcp_flag(s: &str) -> IResult<&str, (d::StringOperator, d::StringOperator)> {
-    map(
-        pair(
-            Negative::parse,
-            preceded(
-                strip_tag("--tcp-flags"),
-                separated_pair(flags, space1, flags),
+    fn parse_item(s: &str) -> IResult<&str, &str> {
+        verify(alpha1, |value| TCP_FLAGS_ALL.contains(value)).parse(s)
+    }
+
+    fn flags(s: &str) -> IResult<&str, Vec<&str>> {
+        alt((
+            Self::parse_all,
+            value(vec![], tag("NONE")),
+            separated_list1(tag(","), Self::parse_item),
+            map(Self::parse_item, |v| vec![v]),
+        ))
+        .parse(s)
+    }
+
+    // 1    // 2
+    //  --tcp-flags FIN,SYN,ACK ACK
+    // ! --tcp-flags FIN,SYN,ACK ACK
+    fn parse(s: &str) -> IResult<&str, (d::StringOperator, d::StringOperator)> {
+        map(
+            pair(
+                single_operator,
+                preceded(
+                    strip_tag("--tcp-flags"),
+                    separated_pair(Self::flags, space1, Self::flags),
+                ),
             ),
-        ),
-        |(operator, value)| {
-            if operator.single() == d::OperatorType::EQ {
-                let second = d::StringOperator::new(
-                    d::OperatorType::NEQ,
-                    value
+            |(operator, value)| {
+                let values: Vec<&str>;
+
+                if operator == d::OperatorType::EQ {
+                    values = value
                         .0
                         .into_iter()
                         .filter(|x| !value.1.contains(x))
-                        .collect(),
-                );
-                let first = d::StringOperator::new(d::OperatorType::EQ, value.1);
+                        .collect()
+                } else {
+                    let mut res: Vec<&str> = Vec::with_capacity(6);
+                    res.extend(TCP_FLAGS_ALL);
+                    values = res.into_iter().filter(|x| !value.0.contains(x)).collect()
+                }
+
+                let first = d::StringOperator::new(d::OperatorType::NEQ, values);
+                let second: domain::StringOperator<'_> =
+                    d::StringOperator::new(d::OperatorType::EQ, value.1);
                 return (first, second);
-            } else {
-                !todo!("not realize neg")
-            }
-        },
-    )
-    .parse(s)
+            },
+        )
+        .parse(s)
+    }
 }
 
 struct Protocol;
 impl Protocol {
-    fn build<O>(operator: O, value: &str) -> d::StringOperator
-    where
-        O: SingleIntOperator,
-    {
-        d::StringOperator::new(operator.single(), vec![value])
-    }
     fn parse(s: &str) -> IResult<&str, d::StringOperator> {
         let parser = alt((
             nom::combinator::value("ip", preceded(strip_tag("-p"), alt((tag("0"), tag("all"))))),
             preceded(strip_tag("-p"), alpha1),
         ));
 
-        map(pair(Negative::parse, parser), |(operator, value)| {
-            Self::build(operator, value)
+        map(pair(single_operator, parser), |(operator, value)| {
+            d::StringOperator::new(operator, vec![value])
         })
         .parse(s)
     }
@@ -249,19 +307,13 @@ impl Protocol {
 
 struct ProtocolNumber;
 impl ProtocolNumber {
-    fn build<O>(operator: O, value: u16) -> d::IntOperator
-    where
-        O: SingleIntOperator,
-    {
-        d::IntOperator::new(operator.single(), vec![value])
-    }
     fn parse(s: &str) -> IResult<&str, d::IntOperator> {
         map(
             pair(
-                Negative::parse,
+                single_operator,
                 preceded(strip_tag("-p"), verify(u16, |value| *value != 0)),
             ),
-            |(operator, value)| Self::build(operator, value),
+            |(operator, value)| d::IntOperator::new(operator, vec![value]),
         )
         .parse(s)
     }
@@ -412,18 +464,26 @@ where
             map(rstrip_tag("--log-ip-options"), |_| {
                 Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogIPOptions, ""))
             }),
-            map(PortParser::parse_vec("--ports"), |value| Token::Ports(value)),
+            map(PortParser::parse_vec("--ports"), |value| {
+                Token::Ports(value)
+            }),
             map(
-                alt((PortParser::parse_vec("--sports"), map(PortParser::parse("--sport"), |value| vec![value]))),
+                alt((
+                    PortParser::parse_vec("--sports"),
+                    map(PortParser::parse("--sport"), |value| vec![value]),
+                )),
                 |value| Token::SourcePorts(value),
             ),
             map(
-                alt((PortParser::parse_vec("--dports"), map(PortParser::parse("--dport"), |value| vec![value]))),
+                alt((
+                    PortParser::parse_vec("--dports"),
+                    map(PortParser::parse("--dport"), |value| vec![value]),
+                )),
                 |value| Token::DestinationPorts(value),
             ),
-            map(Protocol::parse, |value|Token::Protocol(value)),
-            map(ProtocolNumber::parse, |value|Token::ProtocolNumber(value)),
-            map(tcp_flag, |value| Token::TCPFlags(value)),
+            map(Protocol::parse, |value| Token::Protocol(value)),
+            map(ProtocolNumber::parse, |value| Token::ProtocolNumber(value)),
+            map(TCPFlagsParser::parse, |value| Token::TCPFlags(value)),
             unknown_part,
         ))),
         |value| Tokens(value),
