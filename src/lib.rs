@@ -248,7 +248,7 @@ impl PortParser {
 
 // --tcp-flags
 
-static TCP_FLAGS_ALL: [&'static str; 6] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH"];
+static TCP_FLAGS_ALL: [&str; 6] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH"];
 
 struct TCPFlagsParser;
 impl TCPFlagsParser {
@@ -302,7 +302,7 @@ impl TCPFlagsParser {
                 let first = d::StringOperator::new(d::OperatorType::NEQ, values);
                 let second: domain::StringOperator<'_> =
                     d::StringOperator::new(d::OperatorType::EQ, value.1);
-                return (first, second);
+                (first, second)
             },
         )
         .parse(s)
@@ -361,7 +361,7 @@ impl<'a> ActionModifiers<'a> {
     }
 }
 
-impl<'a> Default for ActionModifiers<'a> {
+impl Default for ActionModifiers<'_> {
     fn default() -> Self {
         Self(vec![d::ActionSetting::new(
             d::ActionType::LogLevel,
@@ -404,7 +404,7 @@ impl<'a> Tokens<'a> {
     }
 }
 
-impl<'a> Serialize for Tokens<'a> {
+impl Serialize for Tokens<'_> {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -413,8 +413,8 @@ impl<'a> Serialize for Tokens<'a> {
         let mut action_modifier = 0;
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
 
-        let mut iter = self.0.iter();
-        while let Some(item) = iter.next() {
+        let iter = self.0.iter();
+        for item in iter {
             match item {
                 Token::Error(a) => {
                     map.serialize_entry(&format!("error_{}", number), &a)?;
@@ -447,7 +447,7 @@ where
 {
     map(
         many1(alt((
-            map(name("-A"), |value| Token::Name(value)),
+            map(name("-A"), Token::Name),
             map(verify(strip_value("-j"), is_user_chain), |value| {
                 Token::ActionSetting(ActionSetting::new(d::ActionType::JUMP, Some(value)))
             }),
@@ -457,7 +457,7 @@ where
                 }),
                 |value| Token::Action(d::ActionType::from_str(value).unwrap()),
             ),
-            map(strip_value("--reject-with"), |value| Token::Option(value)),
+            map(strip_value("--reject-with"), Token::Option),
             map(strip_value("-g"), |value| {
                 Token::ActionSetting(ActionSetting::new(d::ActionType::GOTO, Some(value)))
             }),
@@ -484,21 +484,21 @@ where
                     PortParser::parse_vec("--sports"),
                     map(PortParser::parse_single("--sport"), |value| vec![value]),
                 )),
-                |value| Token::SourcePorts(value),
+                Token::SourcePorts,
             ),
             map(
                 alt((
                     PortParser::parse_vec("--dports"),
                     map(PortParser::parse_single("--dport"), |value| vec![value]),
                 )),
-                |value| Token::DestinationPorts(value),
+                Token::DestinationPorts,
             ),
-            map(protocol, |value| Token::Protocol(value)),
-            map(protocol_number, |value| Token::ProtocolNumber(value)),
-            map(TCPFlagsParser::parse, |value| Token::TCPFlags(value)),
-            map(unknown_part, |value| Token::Error(value)),
+            map(protocol, Token::Protocol),
+            map(protocol_number, Token::ProtocolNumber),
+            map(TCPFlagsParser::parse, Token::TCPFlags),
+            map(unknown_part, Token::Error),
         ))),
-        |value| Tokens(value),
+        Tokens,
     )
     .parse(input)
 }
@@ -511,8 +511,8 @@ struct ActionSetting<'a> {
 impl<'a> ActionSetting<'a> {
     fn new(action: d::ActionType, option: Option<&'a str>) -> Self {
         Self {
-            action: action,
-            option: option,
+            action,
+            option,
         }
     }
 
@@ -529,7 +529,7 @@ impl<'a> ActionSetting<'a> {
     }
 }
 
-impl<'a> Default for ActionSetting<'a> {
+impl Default for ActionSetting<'_> {
     fn default() -> Self {
         Self {
             action: d::ActionType::PASS,
@@ -539,6 +539,7 @@ impl<'a> Default for ActionSetting<'a> {
 }
 
 #[derive(Serialize)]
+#[derive(Default)]
 struct ACLRule<'a> {
     action_modifiers: Vec<d::ActionSetting<'a>>,
     action: Option<d::ActionSetting<'a>>,
@@ -563,15 +564,6 @@ impl<'a> ACLRule<'a> {
     }
 }
 
-impl<'a> Default for ACLRule<'a> {
-    fn default() -> Self {
-        Self {
-            action_modifiers: vec![],
-            action: None,
-            normalized_action: None,
-        }
-    }
-}
 
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let (remain, (name, rule)) = parser(input, |v| user_chains.contains(&v))
