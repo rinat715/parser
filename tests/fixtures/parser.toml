@@ -42,8 +42,8 @@ remaining = ""
 
 [test_6.expected]
 name = "INPUT"
-error_0 = "!"
-error_1 = "-s 10.0.0.4/32"
+error_0 = " !"
+error_1 = " -s 10.0.0.4/32"
 action = "DROP"
 
 [test_6.expected.protocol]
@@ -56,8 +56,8 @@ remaining = ""
 
 [test_7.expected]
 name = "INPUT"
-error_0 = "-m conntrack"
-error_1 = "--ctstate RELATED,ESTABLISHED"
+error_0 = " -m conntrack"
+error_1 = " --ctstate RELATED,ESTABLISHED"
 action = "ACCEPT"
 
 [test_8]
@@ -66,13 +66,13 @@ remaining = ""
 
 [test_8.expected]
 name = "INPUT"
-error_0 = "-m recent"
-error_1 = "--rcheck"
-error_2 = "--seconds 60"
-error_3 = "--name DEFAULT"
-error_4 = "--rsource"
-error_5 = "-m limit"
-error_6 = "--limit 10/sec"
+error_0 = " -m recent"
+error_1 = " --rcheck"
+error_2 = " --seconds 60"
+error_3 = " --name DEFAULT"
+error_4 = " --rsource"
+error_5 = " -m limit"
+error_6 = " --limit 10/sec"
 action = "LOG"
 
 [test_8.expected.action_modifier_0]
@@ -85,7 +85,7 @@ remaining = ""
 
 [test_9.expected]
 name = "INPUT"
-error_0 = "-s 10.0.0.12/32"
+error_0 = " -s 10.0.0.12/32"
 action = "DROP"
 
 [[test_9.expected.tcp-flags]]
@@ -102,7 +102,7 @@ remaining = ""
 
 [test_10.expected]
 name = "OUTPUT"
-error_0 = "--match-set BlockedHosts dst,dst"
+error_0 = " --match-set BlockedHosts dst,dst"
 action = "DROP"
 
 
@@ -112,9 +112,9 @@ remaining = ""
 
 [test_11.expected]
 name = "check_ours"
-error_0 = "-s 10.134.0.68/32"
-error_1 = "-m mac"
-error_2 = "--mac-source 00:1D:60:2E:ED:CD"
+error_0 = " -s 10.134.0.68/32"
+error_1 = " -m mac"
+error_2 = " --mac-source 00:1D:60:2E:ED:CD"
 action = "RETURN"
 
 [test_11.expected.action_modifier_0]
@@ -140,7 +140,7 @@ values = ["udp"]
 
 [test_14.expected]
 name = "INPUT"
-error_0 = "-j SETCLASS"
+error_0 = " -j SETCLASS"
 
 [[test_14.expected.dports]]
 operator = "EQ"

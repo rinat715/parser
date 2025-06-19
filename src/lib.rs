@@ -99,6 +99,10 @@ mod tests {
         let (remaining, result) = unknown_part(" --match-set BlockedHosts dst,dst").unwrap();
         assert_eq!(remaining, "");
         assert_eq!(result, " --match-set BlockedHosts dst,dst");
+
+        let (remaining, result) = unknown_part(" --log-ip-options\ns").unwrap();
+        assert_eq!(remaining, "\ns");
+        assert_eq!(result, " --log-ip-options");
     }
 }
 
