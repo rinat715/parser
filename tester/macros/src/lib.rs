@@ -12,6 +12,8 @@ use toml::Value;
 type Error = syn::Error;
 type Result<T> = syn::Result<T>;
 
+// TODO наверно выкинуть макрос и сделать как https://github.com/joelself/tomllib/tree/master/assets
+
 #[derive(Deserialize)]
 struct TestSuit {
     input: String,

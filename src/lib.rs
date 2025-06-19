@@ -89,7 +89,7 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     )
     .parse(s);
     let res2 = map_parser(
-        peek(take_until::<&str, &str, nom::error::Error<&str>>(" -")),
+        peek(take_until::<&str, &str, nom::error::Error<&str>>(" -")),  // внутри take_until std str.find обернутый в FindSubstring
         rest_len,
     )
     .parse(s);
