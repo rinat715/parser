@@ -26,7 +26,6 @@ pub trait Builder {
 }
 
 
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnumError; // TODO нормальное название 
 
@@ -169,7 +168,7 @@ pub trait SingleIntOperator {
 }
 
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct IntOperator {
     operator: OperatorType,
     values: Vec<u16>
