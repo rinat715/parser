@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take, take_until},
-    character::complete::{alpha1, not_line_ending, space1, u16},
+    character::complete::{alpha1, not_line_ending, line_ending, space1, u16},
     combinator::{map, map_parser, opt, peek, rest_len, value, verify, recognize, not, eof},
     multi::{many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
@@ -80,6 +80,10 @@ mod tests {
         let (remaining, result) = until_eof("-A\ndf").unwrap();
         assert_eq!(remaining, "\ndf");
         assert_eq!(result, "-A");
+
+        let (remaining, result) = until_eof("\ndf").unwrap();
+        assert_eq!(remaining, "\ndf");
+        assert_eq!(result, "");
     }
 
     #[test]
@@ -87,10 +91,6 @@ mod tests {
         let (remaining, result) = unknown_part(" ").unwrap();
         assert_eq!(remaining, "");
         assert_eq!(result, " ");
-
-        // let (remaining, result) = unknown_part("").unwrap();
-        // assert_eq!(remaining, "");
-        // assert_eq!(result, "");
 
         let (remaining, result) = unknown_part(" --match-set BlockedHosts dst,dst -j DROP").unwrap();
         assert_eq!(remaining, " -j DROP");
@@ -103,6 +103,16 @@ mod tests {
         let (remaining, result) = unknown_part(" --log-ip-options\ns").unwrap();
         assert_eq!(remaining, "\ns");
         assert_eq!(result, " --log-ip-options");
+
+        // точки останова 
+        // let result = unknown_part("");
+        // assert_eq!(remaining, "");
+        // assert_eq!(result, "");
+
+        // let result = unknown_part("\ns");
+        // assert_eq!(remaining, "\ns");
+        // assert_eq!(result, "");
+        
     }
 }
 
@@ -145,7 +155,8 @@ fn strip_tag(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
 }
 
 fn unknown_part(input: &str) -> IResult<&str, &str> {
-    not(eof).parse(input)?;
+    not(alt((eof, line_ending))).parse(input)?;
+    
     recognize(pair(opt(alt((tag(" -"), tag(" !")))), until_eof)).parse(input)
 }
 
