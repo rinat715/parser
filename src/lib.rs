@@ -3,7 +3,7 @@ use nom::{
     bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, line_ending, not_line_ending, space1, u16},
     combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value, verify},
-    multi::{many1, separated_list1},
+    multi::{fold_many1, many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
 };
@@ -13,7 +13,8 @@ use std::str::FromStr;
 
 use d::RangeIntOperator;
 use d::SingleIntOperator;
-use domain as d;
+use domain::BuildActionSetting;
+use domain::{self as d, Builder};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnum2Error; // TODO нормальное название
@@ -304,9 +305,10 @@ impl TCPFlagsParser {
                         .filter(|x| !value.1.contains(x))
                         .collect()
                 } else {
-                    let mut res: Vec<&str> = Vec::with_capacity(6);
-                    res.extend(TCP_FLAGS_ALL);
-                    values = res.into_iter().filter(|x| !value.0.contains(x)).collect()
+                    values = TCP_FLAGS_ALL
+                        .into_iter()
+                        .filter(|x| !value.0.contains(x))
+                        .collect()
                 }
 
                 let first = d::StringOperator::new(d::OperatorType::NEQ, values);
@@ -380,7 +382,7 @@ impl Default for ActionModifiers<'_> {
     }
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize)]
 struct ACLRule<'a> {
     action_settings: Option<d::ActionSetting<'a>>,
     action_modifiers: Vec<d::ActionSetting<'a>>,
@@ -391,7 +393,8 @@ struct ACLRule<'a> {
     sports: Vec<d::IntOperator>,
     dports: Vec<d::IntOperator>,
     tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
-    action_builder: ActionSettingBuilder<'a>,
+    action: Field<d::ActionType>,
+    option: Field<&'a str>,
 }
 impl<'a> ACLRule<'a> {
     fn new() -> Self {
@@ -399,7 +402,8 @@ impl<'a> ACLRule<'a> {
             action_modifiers: Vec::new(),
             errors: Vec::new(),
             action_settings: None,
-            action_builder: Default::default(),
+            action: Field(None),
+            option: Field(None),
             name: None,
             protocol: None,
             protocol_number: None,
@@ -413,8 +417,8 @@ impl<'a> ACLRule<'a> {
         match token {
             Token::Error(v) => self.errors.push(v),
             Token::ActionSetting(v) => self.action_settings = Some(v),
-            Token::Action(v) => self.action_builder.action = v,
-            Token::Option(v) => self.action_builder.option = v,
+            Token::Action(v) => self.action = Field(Some(v)),
+            Token::Option(v) => self.option = Field(Some(v)),
             Token::ActionModifier(v) => self.action_modifiers.push(v),
             Token::Name(v) => self.name = Some(v),
             Token::Protocol(v) => self.protocol = Some(v),
@@ -432,7 +436,9 @@ impl<'a> ACLRule<'a> {
     }
 
     fn build(self) {
-        let action = self.action_settings.unwrap_or(self.action_builder.build());
+        let mut action_bulder = ActionSettingBuilder::default();
+        action_bulder.action(self.action).option(self.option);
+        let action = self.action_settings.unwrap_or(action_bulder.build());
     }
 }
 
@@ -511,9 +517,24 @@ impl<'a> ActionSettingBuilder<'a> {
     fn new(action: d::ActionType, option: &'a str) -> Self {
         Self { action, option }
     }
+}
 
-    fn build(self) -> d::ActionSetting<'a> {
-        d::ActionSetting::new(self.action, self.option)
+// TODO сделать макросом
+impl<'a> BuildActionSetting<'a> for ActionSettingBuilder<'a> {
+    // для каждого типа T который реализует Builder<Result = domain::ActionType> будет создана своя версия action<конкретный тип>
+    fn action<T>(&mut self, action: T) -> &mut Self
+    where
+        T: domain::Builder<Result = domain::ActionType>,
+    {
+        self.action = action.build();
+        self
+    }
+    fn option<T>(&mut self, option: T) -> &mut Self
+    where
+        T: domain::Builder<Result = &'a str>,
+    {
+        self.option = option.build();
+        self
     }
 }
 
@@ -526,6 +547,25 @@ impl Default for ActionSettingBuilder<'_> {
     }
 }
 
+impl<'a> d::Builder for ActionSettingBuilder<'a> {
+    type Result = d::ActionSetting<'a>;
+    fn build(self) -> Self::Result {
+        d::ActionSetting::new(self.action, self.option)
+    }
+}
+
+#[derive(Serialize)]
+struct Field<T>(std::option::Option<T>);
+
+impl<T> d::Builder for Field<T> {
+    type Result = T;
+    fn build(self) -> Self::Result {
+        match self.0 {
+            None => panic!(),
+            Some(x) => x,
+        }
+    }
+}
 
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
     let (remain, (name, rule)) = parser(input, |v| user_chains.contains(&v))

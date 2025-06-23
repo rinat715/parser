@@ -2,6 +2,8 @@ use serde_derive::Serialize;
 use std::str::FromStr;
 use serde::{ Serialize, Serializer, ser::SerializeSeq};
 
+pub mod operators;
+pub use operators::*;
 
 fn ser_vec_options<S, T>(values: &Vec<Option<T>>, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -112,6 +114,14 @@ impl TryFrom<&ActionType> for NormalizedAction {
     }
 }
 
+pub trait BuildActionSetting<'a> {
+    fn action<T>(&mut self, action: T) -> &mut Self
+    where T: Builder<Result = ActionType>;
+
+    fn option<T>(&mut self, option: T)  -> &mut Self
+    where T: Builder<Result = &'a str>;
+}
+
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ActionSetting<'a> {
     action: ActionType,
@@ -132,64 +142,6 @@ impl<'a> ActionSetting<'a> {
     }
 }
 
-#[derive(Serialize, Clone, PartialEq)]
-pub enum OperatorType {
-    EQ,
-    NEQ,
-    RANGE,
-    NotRange
-}
-
-
-#[derive(Serialize)]
-pub struct StringOperator<'a> {
-    operator: OperatorType,
-    values: Vec<&'a str>
-}
-
-impl<'a> StringOperator<'a> {
-    pub fn new(operator_type: OperatorType, values: Vec<&'a str>) -> Self {
-        Self { operator: operator_type, values: values }
-    }
-}
-
-pub trait BuildIntOperator {
-    fn set_operator(&mut self, operator: OperatorType) -> &mut Self;
-
-    fn set_values(&mut self, values: Vec<u16>) -> &mut Self;
-}
-
-pub trait RangeIntOperator {
-    fn range(&self) -> OperatorType;
-}
-
-pub trait SingleIntOperator {
-    fn single(&self) -> OperatorType;
-}
-
-
-#[derive(Serialize, Clone)]
-pub struct IntOperator {
-    operator: OperatorType,
-    values: Vec<u16>
-}
-
-impl IntOperator {
-    pub fn new(operator_type: OperatorType, values: Vec<u16>) -> Self {
-        Self { operator: operator_type, values: values }
-    }
-}
-
-impl BuildIntOperator for IntOperator {
-    fn set_operator(&mut self, operator: OperatorType) -> &mut Self {
-        self.operator = operator;
-        self
-    }
-    fn set_values(&mut self, values: Vec<u16>) -> &mut Self {
-        self.values.extend(values);
-        self
-    }
-}
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ACLRule<'a> {
