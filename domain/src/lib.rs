@@ -27,6 +27,12 @@ pub trait Builder {
     fn build(self) -> Self::Result;
 }
 
+pub trait OptionBuilder {
+    type Result;
+
+    fn build(self) -> Option<Self::Result>;
+}
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnumError; // TODO нормальное название 
@@ -115,11 +121,9 @@ impl TryFrom<&ActionType> for NormalizedAction {
 }
 
 pub trait BuildActionSetting<'a> {
-    fn action<T>(&mut self, action: T) -> &mut Self
-    where T: Builder<Result = ActionType>;
+    fn action(&mut self, action: Option<ActionType>) -> &mut Self;
 
-    fn option<T>(&mut self, option: T)  -> &mut Self
-    where T: Builder<Result = &'a str>;
+    fn option(&mut self, option: Option<&'a str>)  -> &mut Self;
 }
 
 #[derive(Debug, PartialEq, Serialize)]

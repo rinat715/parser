@@ -58,17 +58,12 @@ impl TestSuit {
                 }
 
             }
-
-        
         } else {
-
-            if self.expected.is_str()
-             {
+            if self.expected.is_str() {
                 let expected = self.expected.as_str(); // TODO обрабтывать ошибку
                 quote! {
                     assert_eq!(#expected,  result, "wrong expected {} {}", #expected, result);
                 }
-
             } else {
                 let expected_str = toml::to_string(&self.expected).unwrap(); // TODO обрабтывать ошибку
                 let expected = expected_str.as_str();
@@ -76,8 +71,6 @@ impl TestSuit {
                     assert_eq!(#expected,  toml::to_string(&result).unwrap(), "wrong expected {} {}", #expected, toml::to_string(&result).unwrap());
                 }
             }
-
-
         }
     }
     fn name(&self, func: &str, name: &str) -> syn::Ident {
