@@ -33,6 +33,14 @@ pub trait OptionBuilder {
     fn build(self) -> Option<Self::Result>;
 }
 
+pub trait TryBuilder {
+    type Result;
+
+    fn default() -> Self::Result; 
+
+    fn build(self) -> Option<Self::Result>;
+}
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnumError; // TODO нормальное название 

@@ -3,7 +3,7 @@ use nom::{
     bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, line_ending, not_line_ending, space1, u16},
     combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value, verify},
-    multi::{many1, separated_list1},
+    multi::{fold_many1, many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
 };
@@ -14,6 +14,7 @@ use std::str::FromStr;
 use d::SingleIntOperator;
 use domain as d;
 use domain::BuildActionSetting;
+use domain::Builder;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnum2Error; // TODO нормальное название
@@ -378,33 +379,34 @@ impl Default for ActionModifiers<'_> {
     }
 }
 
-impl<'a> d::Builder for ActionModifiers<'a>  {
+impl<'a> d::Builder for ActionModifiers<'a> {
     type Result = Vec<d::ActionSetting<'a>>;
     fn build(self) -> Self::Result {
         self.0
-    } 
+    }
 }
 
 // представление правила в плоской структуре
 #[derive(Serialize)]
 struct ACLRule<'a> {
     action_settings: BuildWrapper<d::ActionSetting<'a>>,
-    action_modifiers: ActionModifiers<'a>,
+    action_modifiers: Vec<d::ActionSetting<'a>>,
     errors: Vec<&'a str>,
     name: Option<&'a str>,
     protocol: Option<d::StringOperator<'a>>,
     protocol_number: Option<d::IntOperator>,
-    sports: Vec<d::IntOperator>,
-    dports: Vec<d::IntOperator>,
+    sports: Option<Vec<d::IntOperator>>,
+    dports: Option<Vec<d::IntOperator>>,
+    ports: Option<Vec<d::IntOperator>>,
     tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
     action: Option<d::ActionType>,
     option: Option<&'a str>,
-    is_log: bool
+    is_log: Option<bool>,
 }
 impl<'a> ACLRule<'a> {
     fn new() -> Self {
         Self {
-            action_modifiers: Default::default(),
+            action_modifiers: Vec::new(),
             errors: Vec::new(),
             action_settings: BuildWrapper(None),
             action: None,
@@ -412,10 +414,11 @@ impl<'a> ACLRule<'a> {
             name: None,
             protocol: None,
             protocol_number: None,
-            sports: Vec::new(),
-            dports: Vec::new(),
+            sports: None,
+            dports: None,
+            ports: None,
             tcp_flags: None,
-            is_log: false
+            is_log: None,
         }
     }
 
@@ -423,12 +426,14 @@ impl<'a> ACLRule<'a> {
         match token {
             Token::Error(v) => self.errors.push(v),
             Token::ActionSetting(v) => self.action_settings = BuildWrapper(Some(v)),
-            Token::Action(v) => self.action = {
-                if v == d::ActionType::LOG {
-                    self.is_log = true
+            Token::Action(v) => {
+                self.action = {
+                    if v == d::ActionType::LOG {
+                        self.is_log = Some(true)
+                    }
+                    Some(v)
                 }
-                Some(v)
-            },
+            }
             Token::Option(v) => self.option = Some(v),
             Token::ActionModifier(v) => self.action_modifiers.push(v),
             Token::Name(v) => self.name = Some(v),
@@ -438,107 +443,104 @@ impl<'a> ACLRule<'a> {
                 // let mut clone_v: Vec<_> = Vec::with_capacity(v.len());
                 // clone_v.copy_from_slice(&v);
                 // self.sports.extend(clone_v);
-                self.dports.extend(v);
+                self.ports = Some(v);
             }
-            Token::SourcePorts(v) => self.sports.extend(v),
-            Token::DestinationPorts(v) => self.dports.extend(v),
+            Token::SourcePorts(v) => self.sports = Some(v),
+            Token::DestinationPorts(v) => self.dports = Some(v),
             Token::TCPFlags(v) => self.tcp_flags = Some(v),
         }
-    }
-
-    fn build(self) {
-        
-
     }
 }
 
 impl<'a> d::Builder for ACLRule<'a> {
     type Result = d::ACLRule<'a>;
-    fn build(self) -> Self::Result { // TODO для типов с default убрать Option
+    fn build(self) -> Self::Result {
+        // TODO для типов с default убрать Option
         let mut action_bulder = ActionSettingBuilder::default();
         action_bulder.action(self.action).option(self.option);
 
         let mut acl_rule = ACLRuleBuilder::default();
         acl_rule.action(action_bulder).action(self.action_settings); //  ActionSetting можно создать из двух объектов -g и -j
-        self.is_log.then(||acl_rule.action_modifiers(self.action_modifiers));
+        self.is_log
+            .unwrap_or_default()
+            .then(|| {
+                let mut action_modifiers = ActionModifiers::default();
+                self.action_modifiers.into_iter().for_each(|i|action_modifiers.push(i));
+                acl_rule.action_modifiers(action_modifiers)}
+            );
 
         acl_rule.build()
-        
-
     }
-    
 }
 
 fn parser<F>(input: &str, is_user_chain: F) -> IResult<&str, ACLRule>
 where
     F: Fn(&str) -> bool,
 {
-    map(
-        many1(alt((
-            map(name("-A"), Token::Name),
-            map(verify(strip_value("-j"), is_user_chain), |value| {
-                Token::ActionSetting(d::ActionSetting::new(d::ActionType::JUMP, value))
+    let parser = many1(alt((
+        map(name("-A"), Token::Name),
+        map(verify(strip_value("-j"), is_user_chain), |value| {
+            Token::ActionSetting(d::ActionSetting::new(d::ActionType::JUMP, value))
+        }),
+        map(
+            verify(strip_value("-j"), |value| {
+                d::ActionType::from_str(value).is_ok()
             }),
-            map(
-                verify(strip_value("-j"), |value| {
-                    d::ActionType::from_str(value).is_ok()
-                }),
-                |value| Token::Action(d::ActionType::from_str(value).unwrap()),
-            ),
-            map(strip_value("--reject-with"), Token::Option),
-            map(strip_value("-g"), |value| {
-                Token::ActionSetting(d::ActionSetting::new(d::ActionType::GOTO, value))
-            }),
-            map(strip_value("--log-level"), |value| {
-                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogLevel, value))
-            }),
-            map(strip_value("--log-prefix"), |value| {
-                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogPrefix, value))
-            }),
-            map(rstrip_tag("--log-tcp-sequence"), |_| {
-                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogTCPSequence, ""))
-            }),
-            map(rstrip_tag("--log-tcp-options"), |_| {
-                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogTCPOptions, ""))
-            }),
-            map(rstrip_tag("--log-ip-options"), |_| {
-                Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogIPOptions, ""))
-            }),
-            map(PortParser::parse_vec("--ports"), |value| {
-                Token::Ports(value)
-            }),
-            map(
-                alt((
-                    PortParser::parse_vec("--sports"),
-                    map(PortParser::parse_single("--sport"), |value| vec![value]),
-                )),
-                Token::SourcePorts,
-            ),
-            map(
-                alt((
-                    PortParser::parse_vec("--dports"),
-                    map(PortParser::parse_single("--dport"), |value| vec![value]),
-                )),
-                Token::DestinationPorts,
-            ),
-            map(protocol, Token::Protocol),
-            map(protocol_number, Token::ProtocolNumber),
-            map(TCPFlagsParser::parse, Token::TCPFlags),
-            map(unknown_part, Token::Error),
-        ))),
-        |items| {
-            let mut rule = ACLRule::new();
-            items.into_iter().for_each(|i| rule.add(i));
-            rule
-        },
-    )
+            |value| Token::Action(d::ActionType::from_str(value).unwrap()),
+        ),
+        map(strip_value("--reject-with"), Token::Option),
+        map(strip_value("-g"), |value| {
+            Token::ActionSetting(d::ActionSetting::new(d::ActionType::GOTO, value))
+        }),
+        map(strip_value("--log-level"), |value| {
+            Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogLevel, value))
+        }),
+        map(strip_value("--log-prefix"), |value| {
+            Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogPrefix, value))
+        }),
+        map(rstrip_tag("--log-tcp-sequence"), |_| {
+            Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogTCPSequence, ""))
+        }),
+        map(rstrip_tag("--log-tcp-options"), |_| {
+            Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogTCPOptions, ""))
+        }),
+        map(rstrip_tag("--log-ip-options"), |_| {
+            Token::ActionModifier(d::ActionSetting::new(d::ActionType::LogIPOptions, ""))
+        }),
+        map(PortParser::parse_vec("--ports"), |value| {
+            Token::Ports(value)
+        }),
+        map(
+            alt((
+                PortParser::parse_vec("--sports"),
+                map(PortParser::parse_single("--sport"), |value| vec![value]),
+            )),
+            Token::SourcePorts,
+        ),
+        map(
+            alt((
+                PortParser::parse_vec("--dports"),
+                map(PortParser::parse_single("--dport"), |value| vec![value]),
+            )),
+            Token::DestinationPorts,
+        ),
+        map(protocol, Token::Protocol),
+        map(protocol_number, Token::ProtocolNumber),
+        map(TCPFlagsParser::parse, Token::TCPFlags),
+        map(unknown_part, Token::Error),
+    )));
+
+    fold_many1(parser, ACLRule::new, |mut acc, items: Vec<Token>| {
+        items.into_iter().for_each(|i| acc.add(i));
+        acc
+    })
     .parse(input)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct ActionSettingBuilder<'a> {
     action: Option<d::ActionType>,
-    option: &'a str,
+    option: Option<&'a str>,
 } // TODO derive_builder
 
 // TODO сделать макросом
@@ -548,19 +550,8 @@ impl<'a> BuildActionSetting<'a> for ActionSettingBuilder<'a> {
         self
     }
     fn option(&mut self, option: Option<&'a str>) -> &mut Self {
-        if let Some(v) = option {
-            self.option = v;
-        }
+        self.option = option;
         self
-    }
-}
-
-impl Default for ActionSettingBuilder<'_> {
-    fn default() -> Self {
-        Self {
-            action: None,
-            option: "",
-        }
     }
 }
 
@@ -568,7 +559,7 @@ impl<'a> d::OptionBuilder for ActionSettingBuilder<'a> {
     type Result = d::ActionSetting<'a>;
     fn build(self) -> Option<Self::Result> {
         self.action
-            .and_then(|v| Some(d::ActionSetting::new(v, self.option)))
+            .and_then(|v| Some(d::ActionSetting::new(v, self.option.unwrap_or(""))))
     }
 }
 
@@ -585,7 +576,7 @@ impl<T> d::OptionBuilder for BuildWrapper<T> {
 #[derive(Serialize)]
 struct ACLRuleBuilder<'a> {
     action: d::ActionSetting<'a>,
-    action_modifiers: Vec<d::ActionSetting<'a>>
+    action_modifiers: Vec<d::ActionSetting<'a>>,
 } // TODO derive_builder
 
 impl<'a> ACLRuleBuilder<'a> {
@@ -602,35 +593,37 @@ impl<'a> ACLRuleBuilder<'a> {
         self
     }
     fn action_modifiers<T>(&mut self, values: T) -> &mut Self
-    where 
+    where
         T: d::Builder<Result = Vec<d::ActionSetting<'a>>>,
     {
         self.action_modifiers = values.build();
         self
     }
-
 }
 
-impl<'a> d::Builder for ACLRuleBuilder<'a>  {
+impl<'a> d::Builder for ACLRuleBuilder<'a> {
     type Result = d::ACLRule<'a>;
     fn build(self) -> Self::Result {
-        let  normalized_action = self.action.normalized_action().ok();
-        d::ACLRule::new(vec![self.action], vec![normalized_action], self.action_modifiers)
-}
+        let normalized_action = self.action.normalized_action().ok();
+        d::ACLRule::new(
+            vec![self.action],
+            vec![normalized_action],
+            self.action_modifiers,
+        )
+    }
 }
 
 impl Default for ACLRuleBuilder<'_> {
     fn default() -> Self {
         Self {
             action: d::ActionSetting::new(d::ActionType::PASS, ""),
-            action_modifiers: vec![]
+            action_modifiers: vec![],
         }
     }
 }
 
 pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, d::ACLRule<'a>> {
-    let (remain, (name, rule)) = parser(input, |v| user_chains.contains(&v))
-        .map(|(remain, tokens)| (remain, tokens.build()))?;
+    let (remain, rule) = parser(input, |v| user_chains.contains(&v))?;
 
-    Ok((remain, rule))
+    Ok((remain, rule.build()))
 }

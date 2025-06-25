@@ -3,23 +3,36 @@ input = " -j REJECT"
 remaining = ""
 
 [test_1.expected]
+action_modifiers = []
+errors = []
 action = "REJECT"
 
 [test_2]
 input = "-A INPUT"
-expected.name = "INPUT"
 remaining = ""
+
+[test_2.expected]
+action_modifiers = []
+errors = []
+name = "INPUT"
 
 [test_3]
 input = "-A INPUT dfdf"
-expected.name = "INPUT dfdf"
 remaining = ""
+
+[test_3.expected]
+action_modifiers = []
+errors = []
+name = "INPUT dfdf"
 
 [test_4]
 input = " --log-ip-options\ns"
 remaining = "\ns"
 
-[test_4.expected.action_modifier_0]
+[test_4.expected]
+errors = []
+
+[[test_4.expected.action_modifiers]]
 action = "log-ip-options"
 option = ""
 
@@ -28,10 +41,11 @@ input = "-A check_ours -j RETURN --log-prefix \"BG \" 123\""
 remaining = ""
 
 [test_5.expected]
+errors = []
 name = "check_ours"
 action = "RETURN"
 
-[test_5.expected.action_modifier_0]
+[[test_5.expected.action_modifiers]]
 action = "log-prefix"
 option = '"BG " 123"'
 
@@ -41,9 +55,9 @@ input = "-A INPUT ! -s 10.0.0.4/32 -p icmp -j DROP"
 remaining = ""
 
 [test_6.expected]
+action_modifiers = []
+errors = [" !", " -s 10.0.0.4/32"]
 name = "INPUT"
-error_0 = " !"
-error_1 = " -s 10.0.0.4/32"
 action = "DROP"
 
 [test_6.expected.protocol]
@@ -55,9 +69,9 @@ input = "-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
 remaining = ""
 
 [test_7.expected]
+action_modifiers = []
+errors = [" -m conntrack", " --ctstate RELATED,ESTABLISHED"]
 name = "INPUT"
-error_0 = " -m conntrack"
-error_1 = " --ctstate RELATED,ESTABLISHED"
 action = "ACCEPT"
 
 [test_8]
@@ -65,17 +79,12 @@ input = "-A INPUT -m recent --rcheck --seconds 60 --name DEFAULT --rsource -m li
 remaining = ""
 
 [test_8.expected]
+errors = [" -m recent", " --rcheck", " --seconds 60", " --name DEFAULT", " --rsource", " -m limit", " --limit 10/sec"]
 name = "INPUT"
-error_0 = " -m recent"
-error_1 = " --rcheck"
-error_2 = " --seconds 60"
-error_3 = " --name DEFAULT"
-error_4 = " --rsource"
-error_5 = " -m limit"
-error_6 = " --limit 10/sec"
 action = "LOG"
+is_log = true
 
-[test_8.expected.action_modifier_0]
+[[test_8.expected.action_modifiers]]
 action = "log-prefix"
 option = '"BG "'
 
@@ -84,15 +93,16 @@ input = "-A INPUT -s 10.0.0.12/32 -j DROP ! --tcp-flags FIN,SYN,ACK ACK"
 remaining = ""
 
 [test_9.expected]
+action_modifiers = []
+errors = [" -s 10.0.0.12/32"]
 name = "INPUT"
-error_0 = " -s 10.0.0.12/32"
 action = "DROP"
 
-[[test_9.expected.tcp-flags]]
+[[test_9.expected.tcp_flags]]
 operator = "NEQ"
 values = ["RST", "URG", "PSH"]
 
-[[test_9.expected.tcp-flags]]
+[[test_9.expected.tcp_flags]]
 operator = "EQ"
 values = ["ACK"]
 
@@ -101,23 +111,21 @@ input = "-A OUTPUT --match-set BlockedHosts dst,dst -j DROP"
 remaining = ""
 
 [test_10.expected]
+action_modifiers = []
+errors = [" --match-set BlockedHosts dst,dst"]
 name = "OUTPUT"
-error_0 = " --match-set BlockedHosts dst,dst"
 action = "DROP"
-
 
 [test_11]
 input = "-A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix \"BG \" 123\""
 remaining = ""
 
 [test_11.expected]
+errors = [" -s 10.134.0.68/32", " -m mac", " --mac-source 00:1D:60:2E:ED:CD"]
 name = "check_ours"
-error_0 = " -s 10.134.0.68/32"
-error_1 = " -m mac"
-error_2 = " --mac-source 00:1D:60:2E:ED:CD"
 action = "RETURN"
 
-[test_11.expected.action_modifier_0]
+[[test_11.expected.action_modifiers]]
 action = "log-prefix"
 option = '"BG " 123"'
 
@@ -126,6 +134,8 @@ input = "-A INPUT -j REJECT --reject-with tcp-reset"
 remaining = ""
 
 [test_12.expected]
+action_modifiers = []
+errors = []
 name = "INPUT"
 action = "REJECT"
 option = "tcp-reset"
@@ -134,37 +144,42 @@ option = "tcp-reset"
 input = "-A INPUT -j SETCLASS -p udp --dport 1 --sport 2 --ports 25 --tcp-flags FIN,SYN,ACK ACK"
 remaining = ""
 
+[test_14.expected]
+action_modifiers = []
+errors = [" -j SETCLASS"]
+name = "INPUT"
+
 [test_14.expected.protocol]
 operator = "EQ"
 values = ["udp"]
-
-[test_14.expected]
-name = "INPUT"
-error_0 = " -j SETCLASS"
-
-[[test_14.expected.dports]]
-operator = "EQ"
-values = [1]
 
 [[test_14.expected.sports]]
 operator = "EQ"
 values = [2]
 
+[[test_14.expected.dports]]
+operator = "EQ"
+values = [1]
+
 [[test_14.expected.ports]]
 operator = "EQ"
 values = [25]
 
-[[test_14.expected.tcp-flags]]
+[[test_14.expected.tcp_flags]]
 operator = "NEQ"
 values = ["FIN", "SYN"]
 
-[[test_14.expected.tcp-flags]]
+[[test_14.expected.tcp_flags]]
 operator = "EQ"
 values = ["ACK"]
 
 [test_15]
 input = " -p udp ! --ports 25"
 remaining = ""
+
+[test_15.expected]
+action_modifiers = []
+errors = []
 
 [test_15.expected.protocol]
 operator = "EQ"
