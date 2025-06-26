@@ -22,11 +22,9 @@ impl<'a> StringOperator<'a> {
     }
 }
 
-pub trait RangeIntOperator {
+pub trait BuildIntOperator {
     fn range(&self) -> OperatorType;
-}
 
-pub trait SingleIntOperator {
     fn single(&self) -> OperatorType;
 }
 
@@ -40,21 +38,5 @@ pub struct IntOperator {
 impl IntOperator {
     pub fn new(operator_type: OperatorType, values: Vec<u16>) -> Self {
         Self { operator: operator_type, values: values }
-    }
-}
-
-pub trait BuildIntOperator {
-    fn operator(&mut self, operator: OperatorType);
-
-    fn values(&mut self, values: Vec<u16>);
-    
-}
-
-impl BuildIntOperator for IntOperator {
-    fn operator(&mut self, operator: OperatorType) {
-        self.operator = operator;
-    }
-    fn values(&mut self, values: Vec<u16>) {
-        self.values.extend(values);
     }
 }

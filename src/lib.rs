@@ -3,7 +3,8 @@ use nom::{
     bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, line_ending, not_line_ending, space1, u16},
     combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value, verify},
-    multi::{fold_many1, many1, separated_list1},
+    error::ParseError,
+    multi::{fold_many1, separated_list1},
     sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
 };
@@ -11,7 +12,7 @@ use serde_derive::Serialize;
 use std::cmp;
 use std::str::FromStr;
 
-use d::SingleIntOperator;
+use d::BuildIntOperator;
 use domain as d;
 use domain::BuildActionSetting;
 use domain::Builder;
@@ -106,13 +107,21 @@ mod tests {
         assert_eq!(result, " --log-ip-options");
 
         // точки останова
-        // let result = unknown_part("");
-        // assert_eq!(remaining, "");
-        // assert_eq!(result, "");
+        assert_eq!(
+            unknown_part(""),
+            Err(nom::Err::Error(nom::error::Error {
+                input: "",
+                code: nom::error::ErrorKind::Not
+            }))
+        );
 
-        // let result = unknown_part("\ns");
-        // assert_eq!(remaining, "\ns");
-        // assert_eq!(result, "");
+        assert_eq!(
+            unknown_part("\ns"),
+            Err(nom::Err::Error(nom::error::Error {
+                input: "\ns",
+                code: nom::error::ErrorKind::Not
+            }))
+        )
     }
 }
 
@@ -160,6 +169,19 @@ fn unknown_part(input: &str) -> IResult<&str, &str> {
     recognize(pair(opt(alt((tag(" -"), tag(" !")))), until_eof)).parse(input)
 }
 
+/*
+
+BuildIntOperator -> d::OperatorType
+
+#[derive(BuildIntOperator)]
+struct OtherValue(bool);
+impl OtherValue {
+    fn parse(s: &str) -> IResult<&str, Self> {
+        какой то свой парсинг из строки 
+    }
+}
+
+*/
 #[derive(Serialize, Clone, PartialEq)]
 struct Negative(bool);
 impl Negative {
@@ -168,7 +190,15 @@ impl Negative {
     }
 }
 
-impl d::RangeIntOperator for Negative {
+// вынести в макросы 
+impl d::BuildIntOperator for Negative {
+    fn single(&self) -> d::OperatorType {
+        match self.0 {
+            true => d::OperatorType::NEQ,
+            false => d::OperatorType::EQ,
+        }
+    }
+
     fn range(&self) -> d::OperatorType {
         match self.0 {
             true => d::OperatorType::NotRange,
@@ -177,53 +207,47 @@ impl d::RangeIntOperator for Negative {
     }
 }
 
-impl d::SingleIntOperator for Negative {
-    fn single(&self) -> d::OperatorType {
-        match self.0 {
-            true => d::OperatorType::NEQ,
-            false => d::OperatorType::EQ,
-        }
-    }
-}
 
 fn single_operator(s: &str) -> IResult<&str, d::OperatorType> {
     map(Negative::parse, |value| value.single()).parse(s)
 }
 
-enum SingleOrRangeInt {
-    Single(u16),
-    Range(u16, u16),
+enum SingleOrPair<T> {
+    Single(T),
+    Pair(T, T),
 }
-impl SingleOrRangeInt {
-    fn parse(sep: &'static str) -> impl Fn(&str) -> IResult<&str, Self> {
-        move |input: &str| {
-            alt((
-                map(u16::<_, nom::error::Error<&str>>, |value| {
-                    Self::Single(value)
-                }),
-                map(separated_pair(u16, tag(sep), u16), |(f, s)| {
-                    Self::Range(f, s)
-                }),
-            ))
-            .parse(input)
-        }
-    }
+
+fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
+    sep: &'static str,
+    f1: F,
+    f2: F,
+    f3: F,
+) -> impl Parser<&'a str, SingleOrPair<T>, E>
+where
+    F: Parser<&'a str, T, E>,
+{
+    alt((
+        map(f1, |value| SingleOrPair::Single(value)),
+        map(separated_pair(f2, tag(sep), f3), |(f, s)| {
+            SingleOrPair::Pair(f, s)
+        }),
+    ))
 }
 
 struct PortParser;
 
 impl PortParser {
-    fn build<O>(operator: O, value: SingleOrRangeInt) -> d::IntOperator
+    fn build<O>(operator: O, value: SingleOrPair<u16>) -> d::IntOperator
     where
-        O: d::SingleIntOperator + d::RangeIntOperator,
+        O: d::BuildIntOperator,
     {
         match value {
-            SingleOrRangeInt::Single(v) => d::IntOperator::new(operator.single(), vec![v]),
-            SingleOrRangeInt::Range(f, s) => d::IntOperator::new(operator.range(), vec![f, s]),
+            SingleOrPair::Single(v) => d::IntOperator::new(operator.single(), vec![v]),
+            SingleOrPair::Pair(f, s) => d::IntOperator::new(operator.range(), vec![f, s]),
         }
     }
-    fn port(s: &str) -> IResult<&str, SingleOrRangeInt> {
-        SingleOrRangeInt::parse(":").parse(s)
+    fn port(s: &str) -> IResult<&str, SingleOrPair<u16>> {
+        single_or_pair(":", u16, u16, u16).parse(s) // парсеры нельзя клонировать поэтому такая
     }
 
     //  IntOperator --sport 500:600 --dport 45
@@ -387,7 +411,7 @@ impl<'a> d::Builder for ActionModifiers<'a> {
 }
 
 // представление правила в плоской структуре
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct ACLRule<'a> {
     action_settings: BuildWrapper<d::ActionSetting<'a>>,
     action_modifiers: Vec<d::ActionSetting<'a>>,
@@ -404,24 +428,6 @@ struct ACLRule<'a> {
     is_log: Option<bool>,
 }
 impl<'a> ACLRule<'a> {
-    fn new() -> Self {
-        Self {
-            action_modifiers: Vec::new(),
-            errors: Vec::new(),
-            action_settings: BuildWrapper(None),
-            action: None,
-            option: None,
-            name: None,
-            protocol: None,
-            protocol_number: None,
-            sports: None,
-            dports: None,
-            ports: None,
-            tcp_flags: None,
-            is_log: None,
-        }
-    }
-
     fn add(&mut self, token: Token<'a>) {
         match token {
             Token::Error(v) => self.errors.push(v),
@@ -439,12 +445,7 @@ impl<'a> ACLRule<'a> {
             Token::Name(v) => self.name = Some(v),
             Token::Protocol(v) => self.protocol = Some(v),
             Token::ProtocolNumber(v) => self.protocol_number = Some(v),
-            Token::Ports(v) => {
-                // let mut clone_v: Vec<_> = Vec::with_capacity(v.len());
-                // clone_v.copy_from_slice(&v);
-                // self.sports.extend(clone_v);
-                self.ports = Some(v);
-            }
+            Token::Ports(v) => self.ports = Some(v),
             Token::SourcePorts(v) => self.sports = Some(v),
             Token::DestinationPorts(v) => self.dports = Some(v),
             Token::TCPFlags(v) => self.tcp_flags = Some(v),
@@ -461,13 +462,13 @@ impl<'a> d::Builder for ACLRule<'a> {
 
         let mut acl_rule = ACLRuleBuilder::default();
         acl_rule.action(action_bulder).action(self.action_settings); //  ActionSetting можно создать из двух объектов -g и -j
-        self.is_log
-            .unwrap_or_default()
-            .then(|| {
-                let mut action_modifiers = ActionModifiers::default();
-                self.action_modifiers.into_iter().for_each(|i|action_modifiers.push(i));
-                acl_rule.action_modifiers(action_modifiers)}
-            );
+        self.is_log.unwrap_or_default().then(|| {
+            let mut action_modifiers_builder = ActionModifiers::default();
+            self.action_modifiers
+                .into_iter()
+                .for_each(|i| action_modifiers_builder.push(i));
+            acl_rule.action_modifiers(action_modifiers_builder)
+        });
 
         acl_rule.build()
     }
@@ -477,7 +478,7 @@ fn parser<F>(input: &str, is_user_chain: F) -> IResult<&str, ACLRule>
 where
     F: Fn(&str) -> bool,
 {
-    let parser = many1(alt((
+    let parser = alt((
         map(name("-A"), Token::Name),
         map(verify(strip_value("-j"), is_user_chain), |value| {
             Token::ActionSetting(d::ActionSetting::new(d::ActionType::JUMP, value))
@@ -528,10 +529,10 @@ where
         map(protocol_number, Token::ProtocolNumber),
         map(TCPFlagsParser::parse, Token::TCPFlags),
         map(unknown_part, Token::Error),
-    )));
+    ));
 
-    fold_many1(parser, ACLRule::new, |mut acc, items: Vec<Token>| {
-        items.into_iter().for_each(|i| acc.add(i));
+    fold_many1(parser, ACLRule::default, |mut acc, item: Token| {
+        acc.add(item);
         acc
     })
     .parse(input)
@@ -572,6 +573,13 @@ impl<T> d::OptionBuilder for BuildWrapper<T> {
         self.0
     }
 }
+
+impl<T> Default for BuildWrapper<T> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+  
 
 #[derive(Serialize)]
 struct ACLRuleBuilder<'a> {
