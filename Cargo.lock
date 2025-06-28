@@ -33,18 +33,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde",
- "serde_derive",
- "syn",
- "toml",
-]
-
-[[package]]
 name = "macros_lib"
 version = "0.1.0"
 dependencies = [
@@ -149,7 +137,12 @@ dependencies = [
 name = "tester"
 version = "0.1.0"
 dependencies = [
- "macros",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_derive",
+ "syn",
+ "toml",
 ]
 
 [[package]]
