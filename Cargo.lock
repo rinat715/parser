@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "macros_lib"
+name = "macros"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -67,7 +67,7 @@ name = "parser"
 version = "0.1.0"
 dependencies = [
  "domain",
- "macros_lib",
+ "macros",
  "nom",
  "serde",
  "serde_derive",
