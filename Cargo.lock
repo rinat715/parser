@@ -36,7 +36,9 @@ dependencies = [
 name = "macros"
 version = "0.1.0"
 dependencies = [
+ "domain",
  "proc-macro2",
+ "quote",
  "syn",
 ]
 

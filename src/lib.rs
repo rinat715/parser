@@ -16,6 +16,7 @@ use d::BuildIntOperator;
 use domain as d;
 use domain::BuildActionSetting;
 use domain::Builder;
+use macros::BuildIntOperator;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnum2Error; // TODO нормальное название
@@ -182,31 +183,13 @@ impl OtherValue {
 }
 
 */
-#[derive(Serialize, Clone, PartialEq)]
+#[derive(Serialize, Clone, PartialEq, BuildIntOperator)]
 struct Negative(bool);
 impl Negative {
     fn parse(s: &str) -> IResult<&str, Self> {
         map(opt(rstrip_tag("!")), |value| Self(value.is_some())).parse(s)
     }
 }
-
-// вынести в макросы 
-impl d::BuildIntOperator for Negative {
-    fn single(&self) -> d::OperatorType {
-        match self.0 {
-            true => d::OperatorType::NEQ,
-            false => d::OperatorType::EQ,
-        }
-    }
-
-    fn range(&self) -> d::OperatorType {
-        match self.0 {
-            true => d::OperatorType::NotRange,
-            false => d::OperatorType::RANGE,
-        }
-    }
-}
-
 
 fn single_operator(s: &str) -> IResult<&str, d::OperatorType> {
     map(Negative::parse, |value| value.single()).parse(s)
