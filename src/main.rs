@@ -8,7 +8,7 @@ fn main() {
     match res {
         Ok(arg) => {
             let (input, res) = arg;
-            println!("{}{:?}", input, res);
+            println!("{}", input);
             println!("{}", toml::to_string(&res).unwrap())
         }
 

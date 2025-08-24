@@ -7,8 +7,9 @@ edition = "2021"
 nom = "7.1.3"
 serde = "1.0.219"
 serde_derive = "1.0.219"
-toml = {version = "0.8.22",  features = ["preserve_order"] }
+toml = { version = "0.8.22", features = ["preserve_order"] }
+log = { version = "0.4"}
 tester = { path = "tester" }
 domain = { path = "domain" }
 macros = { path = "macros" }
-
+common = { path = "common" }

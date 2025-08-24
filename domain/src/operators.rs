@@ -1,42 +1,77 @@
 use serde_derive::Serialize;
 
-
-#[derive(Serialize, Clone, PartialEq)]
-pub enum OperatorType {
-    EQ,
-    NEQ,
-    RANGE,
-    NotRange
-}
-
-
-#[derive(Serialize)]
-pub struct StringOperator<'a> {
-    operator: OperatorType,
-    values: Vec<&'a str>
-}
-
-impl<'a> StringOperator<'a> {
-    pub fn new(operator_type: OperatorType, values: Vec<&'a str>) -> Self {
-        Self { operator: operator_type, values: values }
-    }
-}
-
-pub trait BuildIntOperator {
+pub trait BuildOperatorType {
     fn range(&self) -> OperatorType;
 
     fn single(&self) -> OperatorType;
 }
 
-
-#[derive(Serialize, Clone)]
-pub struct IntOperator {
-    operator: OperatorType,
-    values: Vec<u16>
+#[derive(Serialize, Clone, PartialEq)]
+#[serde(rename_all(serialize = "lowercase", deserialize = "UPPERCASE"))]
+pub enum OperatorType {
+    EQ,
+    NEQ,
+    RANGE,
+    NotRange,
+    GT,
+    LT,
 }
 
-impl IntOperator {
-    pub fn new(operator_type: OperatorType, values: Vec<u16>) -> Self {
-        Self { operator: operator_type, values: values }
+impl BuildOperatorType for OperatorType {
+    fn range(&self) -> OperatorType {
+        match self {
+            Self::RANGE => Self::RANGE,
+            Self::NotRange => Self::NotRange,
+
+            _ => panic!("Not convert to range"),
+        }
+    }
+
+    fn single(&self) -> OperatorType {
+        match self {
+            Self::EQ => Self::EQ,
+            Self::NEQ => Self::NEQ,
+            Self::GT => Self::GT,
+            Self::LT => Self::LT,
+
+            _ => panic!("Not convert to single"),
+        }
+    }
+}
+
+
+
+#[derive(Serialize, Clone)]
+pub struct Operator<T> {
+    operator: OperatorType,
+    values: Vec<T>,
+}
+
+impl<'a, T> Operator<T> {
+    pub fn new(operator_type: OperatorType, values: Vec<T>) -> Self {
+        Self {
+            operator: operator_type,
+            values: values,
+        }
+    }
+}
+
+pub type IntOperator = Operator<u16>;
+pub type StringOperator<'a> = Operator<&'a str>;
+
+pub enum SingleOrPair<T> {
+    Single(T),
+    Pair(T, T),
+}
+
+pub trait BuildIntOperator {
+    fn build<T>(operator: T, value: SingleOrPair<u16>) -> IntOperator
+    where
+        T: BuildOperatorType,
+    {
+        match value {
+            SingleOrPair::Single(v) => IntOperator::new(operator.single(), vec![v]),
+            SingleOrPair::Pair(f, s) => IntOperator::new(operator.range(), vec![f, s]),
+        }
     }
 }
