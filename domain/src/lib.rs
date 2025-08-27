@@ -45,6 +45,13 @@ pub enum Protocol<'a> {
     Number(IntOperator),
 }
 
+impl<'a> Protocol<'a> {
+    pub fn ip() -> Self {
+        Self::String(StringOperator::new(OperatorType::EQ, vec!["ip"]))
+    }
+    
+}
+
 #[derive(Serialize, Default)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
 pub struct TCPUDPOptions<'a> {
@@ -196,7 +203,7 @@ pub enum NormalizedAction {
     RETURN,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Default)]
 pub struct ActionSetting<'a, T> {
     action: T,
     option: &'a str,
@@ -204,7 +211,7 @@ pub struct ActionSetting<'a, T> {
 
 impl<'a, T> ActionSetting<'a, T>
 where
-    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone,
+    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
 {
     pub fn new(action: T, option: &'a str) -> Self
     where
@@ -255,7 +262,7 @@ where
 
 impl<'a, T> Builder for ActionSettingBuilder<'a, T>
 where
-    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone,
+    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
 {
     type Result = Option<ActionSetting<'a, T>>;
 

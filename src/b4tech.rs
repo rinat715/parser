@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use nom::{
     branch::alt,
     bytes::complete::{tag, take, take_until},
@@ -10,7 +8,6 @@ use nom::{
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
 };
-use serde::de::value;
 use serde_derive::Serialize;
 
 use common::single_or_pair_u16;
@@ -20,6 +17,7 @@ use domain::Builder;
 
 type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use tester::tester;
@@ -165,7 +163,7 @@ fn protocol(s: &str) -> IResult<&str, d::Protocol> {
 }
 
 // 100 deny any any any
-fn rule<'a>(s: &str) -> IResult<&str, d::ACLRule<'a, ActionType>> {
+pub fn rule<'a>(s: &str) -> IResult<&str, d::ACLRule<'a, ActionType>> {
     let mut bulder = ACLRuleBuilder::default();
 
     let number = terminated(u16, space1); // обязательное

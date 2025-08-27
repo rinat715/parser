@@ -3,7 +3,7 @@ use nom::{
     bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, line_ending, not_line_ending, space1, u16},
     combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value, verify},
-    multi::{fold_many1, separated_list1},
+    multi::fold_many1,
     sequence::{pair, preceded, separated_pair, terminated},
     IResult, Parser,
 };
@@ -11,7 +11,7 @@ use serde_derive::Serialize;
 use std::cmp;
 use std::str::FromStr;
 
-use common::single_or_pair_u16;
+use common::{pair_sep_colon, preceded_tag, separated_by_colon};
 use d::BuildIntOperator;
 use d::BuildOperatorType;
 use domain as d;
@@ -194,29 +194,6 @@ fn single_operator(s: &str) -> IResult<&str, d::OperatorType> {
     map(operator, |v| v.single()).parse(s)
 }
 
-use nom::error::ParseError;
-
-pub fn preceded_tag<'a, T, E: ParseError<&'a str>, F>(
-    arg: &'static str,
-    f: F,
-) -> impl Parser<&'a str, T, E>
-where
-    F: Parser<&'a str, T, E>,
-{
-    preceded(pair(tag(arg), space1), f)
-}
-
-pub fn separated_by_colon<'a, T, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, Vec<T>, E>
-where
-    F: Parser<&'a str, T, E>,
-{
-    separated_list1(tag(","), f)
-}
-
-fn pair_sep_colon(s: &str) -> IResult<&str, d::SingleOrPair<u16>> {
-    single_or_pair_u16(":").parse(s)
-}
-
 struct PortParser;
 
 impl PortParser {
@@ -362,16 +339,16 @@ enum OptionType<'a> {
 // представление правила в плоской структуре
 #[derive(Serialize, Default)]
 struct RawACLRule<'a> {
-    #[serde(skip_serializing_if="d::is_empty")]
+    #[serde(skip_serializing_if = "d::is_empty")]
     action_modifiers: Vec<ActionSetting<'a>>,
     name: Option<&'a str>,
     #[serde(flatten)]
     protocol: Option<d::Protocol<'a>>,
-    #[serde(skip_serializing_if="d::is_empty")]
+    #[serde(skip_serializing_if = "d::is_empty")]
     sports: Vec<d::IntOperator>,
-    #[serde(skip_serializing_if="d::is_empty")]
+    #[serde(skip_serializing_if = "d::is_empty")]
     dports: Vec<d::IntOperator>,
-    #[serde(skip_serializing_if="d::is_empty")]
+    #[serde(skip_serializing_if = "d::is_empty")]
     ports: Vec<d::IntOperator>,
     tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
     action: Option<ActionType>,
@@ -421,12 +398,12 @@ impl<'a> d::Builder for RawACLRule<'a> {
             .source_ports(self.ports.clone())
             .destination_ports(self.dports)
             .destination_ports(self.ports);
-        
+
         if let Some(v) = self.tcp_flags {
             tcp_udp_options.flags(vec![v.0, v.1]);
         }
 
-        if let Some(v) =  self.protocol {
+        if let Some(v) = self.protocol {
             acl_rule.protocol(v, tcp_udp_options.build());
         }
 
@@ -490,7 +467,6 @@ where
     .parse(input)
 }
 
-#[derive(Serialize)]
 struct ActionModifiers<'a>(Vec<ActionSetting<'a>>);
 impl<'a> ActionModifiers<'a> {
     fn push(&mut self, item: ActionSetting<'a>) {
@@ -508,12 +484,11 @@ impl Default for ActionModifiers<'_> {
     }
 }
 
-#[derive(Default)]
 pub struct ACLRuleBuilder<'a, T> {
     action_modifiers: Vec<d::ActionSetting<'a, T>>,
-    action: Option<d::ActionSetting<'a, T>>,
+    action: d::ActionSetting<'a, T>,
     normalized_action: Option<d::NormalizedAction>,
-    protocol: Option<d::ProtocolSetting<'a, d::IPv4Options>>,
+    protocol: d::nftables::ProtocolSetting<'a>,
 }
 
 impl<'a> ACLRuleBuilder<'a, ActionType> {
@@ -536,7 +511,7 @@ impl<'a> ACLRuleBuilder<'a, ActionType> {
                 self.action_modifiers = action_modifiers_builder.0
             }
 
-            self.action = Some(i);
+            self.action = i;
         }
         self
     }
@@ -545,13 +520,8 @@ impl<'a> ACLRuleBuilder<'a, ActionType> {
         protocol: d::Protocol<'a>,
         tcp_upd_options: d::TCPUDPOptions<'a>,
     ) -> &mut Self {
-        self.protocol = Some(d::ProtocolSetting::new(
-            None,
-            protocol,
-            Some(tcp_upd_options),
-            None,
-            None,
-        ));
+        self.protocol =
+            d::nftables::ProtocolSetting::new(protocol, Some(tcp_upd_options), None, None);
         self
     }
 }
@@ -564,15 +534,25 @@ impl<'a> d::Builder for ACLRuleBuilder<'a, ActionType> {
     type Result = d::nftables::ACLRule<'a, d::nftables::ActionType>;
 
     fn build(self) -> Self::Result {
-        if let Some(i) = self.action {
-            return d::nftables::ACLRule::new(
-                vec![i],
-                self.action_modifiers,
-                self.normalized_action,
-                self.protocol
-            );
-        } else {
-            d::nftables::ACLRule::new(vec![], vec![], None, None)
+        d::nftables::ACLRule::new(
+            self.action,
+            self.action_modifiers,
+            self.normalized_action,
+            self.protocol,
+        )
+    }
+}
+
+impl<'a> Default for ACLRuleBuilder<'a, ActionType> {
+    fn default() -> Self {
+        let action = d::ActionSetting::default();
+        let normalized_action = action.normalized_action();
+
+        Self {
+            action_modifiers: vec![],
+            action: action,
+            normalized_action: normalized_action.ok(),
+            protocol: d::nftables::ProtocolSetting::default(),
         }
     }
 }

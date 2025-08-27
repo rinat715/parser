@@ -1,11 +1,11 @@
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, u16, u8},
+    character::complete::{alpha1, u16, space1},
     combinator::{map, value},
     error::ParseError,
-    multi::many_m_n,
-    sequence::{pair, preceded, separated_pair, terminated, tuple},
+    multi::separated_list1,
+    sequence::{pair, preceded, separated_pair},
     IResult, Parser,
 };
 
@@ -44,6 +44,28 @@ pub fn protocol(s: &str) -> IResult<&str, d::StringOrU16> {
     alt((any, string, number)).parse(s)
 }
 
+pub fn preceded_tag<'a, T, E: ParseError<&'a str>, F>(
+    arg: &'static str,
+    f: F,
+) -> impl Parser<&'a str, T, E>
+where
+    F: Parser<&'a str, T, E>,
+{
+    preceded(pair(tag(arg), space1), f)
+}
+
+pub fn separated_by_colon<'a, T, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, Vec<T>, E>
+where
+    F: Parser<&'a str, T, E>,
+{
+    separated_list1(tag(","), f)
+}
+
+pub fn pair_sep_colon(s: &str) -> IResult<&str, d::SingleOrPair<u16>> {
+    single_or_pair_u16(":").parse(s)
+}
+
+#[cfg(test)]
 mod tests {
     // !TODO
 }
