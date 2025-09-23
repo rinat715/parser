@@ -15,6 +15,7 @@ pub enum OperatorType {
     NotRange,
     GT,
     LT,
+    MatchAny,
 }
 
 impl BuildOperatorType for OperatorType {
@@ -39,8 +40,6 @@ impl BuildOperatorType for OperatorType {
     }
 }
 
-
-
 #[derive(Serialize, Clone)]
 pub struct Operator<T> {
     operator: OperatorType,
@@ -57,15 +56,8 @@ impl<'a, T> Operator<T> {
 }
 
 pub type IntOperator = Operator<u16>;
-pub type StringOperator<'a> = Operator<&'a str>;
-
-pub enum SingleOrPair<T> {
-    Single(T),
-    Pair(T, T),
-}
-
-pub trait BuildIntOperator {
-    fn build<T>(operator: T, value: SingleOrPair<u16>) -> IntOperator
+impl IntOperator {
+    pub fn build<T>(operator: T, value: SingleOrPair<u16>) -> IntOperator
     where
         T: BuildOperatorType,
     {
@@ -74,4 +66,11 @@ pub trait BuildIntOperator {
             SingleOrPair::Pair(f, s) => IntOperator::new(operator.range(), vec![f, s]),
         }
     }
+}
+
+pub type StringOperator<'a> = Operator<&'a str>;
+
+pub enum SingleOrPair<T> {
+    Single(T),
+    Pair(T, T),
 }

@@ -10,9 +10,8 @@ use nom::{
 };
 use serde_derive::Serialize;
 
-use common::single_or_pair_u16;
+use common as c;
 use domain as d;
-use domain::BuildIntOperator;
 use domain::Builder;
 
 type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
@@ -134,32 +133,34 @@ fn operator(s: &str) -> IResult<&str, d::OperatorType> {
     terminated(alt((gt, lt, eq, range)), space1).parse(s)
 }
 
-struct PortParser;
-impl PortParser {
-    fn port(s: &str) -> IResult<&str, d::SingleOrPair<u16>> {
-        single_or_pair_u16(" ").parse(s)
-    }
+
 
     // dst-port eq 667
     // dst-port range 667 668
-    fn parse_single(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
-        move |input: &str| {
-            let name = terminated(tag(arg), space1);
-            let operator = terminated(operator, space1);
-            let parser = preceded(name, pair(operator, Self::port));
+fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
+    move |input: &str| {
+        let name = terminated(tag(arg), space1);
+        let operator = terminated(operator, space1);
+        let parser = preceded(name, pair(operator, c::pair_sep_space));
 
-            map(parser, |(operator, value)| Self::build(operator, value)).parse(input)
-        }
+        c::port(parser).parse(input)
     }
 }
 
-impl BuildIntOperator for PortParser {}
-
+// {protocl-name | protocol-number | any}
 fn protocol(s: &str) -> IResult<&str, d::Protocol> {
-    map(terminated(common::protocol, space1), |value| {
-        d::Protocol::new(d::OperatorType::EQ, value)
-    })
-    .parse(s)
+    let protocol = alt((
+        value(d::StringOrU16::String("ip"), alt((tag("any"), tag("ip")))),
+        map(alpha1, d::StringOrU16::String),
+        map(u16, d::StringOrU16::Number),
+    ));
+
+    let parser = map(
+        terminated(protocol, space1),
+        |value| (d::OperatorType::EQ, value)
+    );
+
+    c::protocol(parser).parse(s)
 }
 
 // 100 deny any any any

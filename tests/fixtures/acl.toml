@@ -10,6 +10,10 @@ NormalizedAction = "jump"
 action = "GOTO"
 option = "TEST"
 
+[test_1.expected.Protocol]
+operator = "eq"
+values = ["ip"]
+
 [test_2]
 input = " -j MY_CHAIN"
 remaining = ""
@@ -22,6 +26,10 @@ NormalizedAction = "jump"
 action = "JUMP"
 option = "MY_CHAIN"
 
+[test_2.expected.Protocol]
+operator = "eq"
+values = ["ip"]
+
 [test_3]
 input = " -j REJECT --reject-with tcp-reset"
 remaining = ""
@@ -33,6 +41,10 @@ NormalizedAction = "deny"
 [[test_3.expected.Action]]
 action = "REJECT"
 option = "tcp-reset"
+
+[test_3.expected.Protocol]
+operator = "eq"
+values = ["ip"]
 
 
 [test_4]
@@ -50,6 +62,10 @@ option = '"hello guys"'
 [[test_4.expected.Action]]
 action = "LOG"
 option = ""
+
+[test_4.expected.Protocol]
+operator = "eq"
+values = ["ip"]
 
 [test_5]
 input = " -j LOG --log-ip-options --log-tcp-sequence --log-tcp-options --log-level debug"
@@ -76,6 +92,9 @@ option = ""
 action = "LOG"
 option = ""
 
+[test_5.expected.Protocol]
+operator = "eq"
+values = ["ip"]
 
 [test_6]
 input = "-A INPUT -s 192.168.0.0/16 -d 172.16.255.0/24 -p tcp -m tcp --dports 22,23 -m multiport --sports 300:400 -j MY_CHAIN"
