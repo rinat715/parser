@@ -12,6 +12,7 @@ use nom::{
 mod ip;
 
 use domain as d;
+use d::BuildOperatorType;
 
 // парсеры нельзя клонировать поэтому такая
 pub fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
