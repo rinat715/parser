@@ -49,17 +49,16 @@ impl<'a> Protocol<'a> {
     pub fn ip() -> Self {
         Self::String(StringOperator::new(OperatorType::EQ, vec!["ip"]))
     }
-    
 }
 
 #[derive(Serialize, Default)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
 pub struct TCPUDPOptions<'a> {
-    #[serde(skip_serializing_if="is_empty")]
+    #[serde(skip_serializing_if = "is_empty")]
     pub source_ports: Vec<IntOperator>,
-    #[serde(skip_serializing_if="is_empty")]
+    #[serde(skip_serializing_if = "is_empty")]
     pub destination_ports: Vec<IntOperator>,
-    #[serde(skip_serializing_if="is_empty")]
+    #[serde(skip_serializing_if = "is_empty")]
     pub flags: Vec<StringOperator<'a>>,
 }
 
@@ -74,32 +73,6 @@ impl<'a> TCPUDPOptions<'a> {
             destination_ports: destination_ports,
             flags: flags,
         }
-    }
-    pub fn source_ports(&mut self, ports: Vec<IntOperator>) -> &mut Self {
-        if !ports.is_empty() {
-            self.source_ports = ports
-        }
-        self
-    }
-    pub fn destination_ports(&mut self, ports: Vec<IntOperator>) -> &mut Self {
-        if !ports.is_empty() {
-            self.destination_ports = ports
-        }
-        self
-    }
-    pub fn flags(&mut self, flags: Vec<StringOperator<'a>>) -> &mut Self {
-        if !flags.is_empty() {
-            self.flags = flags
-        }
-        self
-    }
-}
-
-impl<'a> Builder for TCPUDPOptions<'a> {
-    type Result = Self;
-
-    fn build(self) -> Self::Result {
-        self
     }
 }
 
@@ -233,50 +206,18 @@ where
     pub fn normalized_action(&self) -> Result<NormalizedAction, ParseEnumError> {
         self.action.clone().try_into()
     }
-}
 
-#[derive(Serialize, Default)]
-pub struct ActionSettingBuilder<'a, T> {
-    action: Option<T>,
-    option: Option<&'a str>,
-}
-
-impl<'a, T> ActionSettingBuilder<'a, T>
-where
-    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone,
-{
-    pub fn action(&mut self, action: Option<T>) -> &mut Self {
-        if let Some(v) = action {
-            self.action = Some(v)
-        }
+    pub fn action(&mut self, action: T) -> &mut Self {
+        self.action = action;
         self
     }
 
-    pub fn option(&mut self, option: Option<&'a str>) -> &mut Self {
-        if let Some(v) = option {
-            self.option = Some(v)
-        }
+    pub fn option(&mut self, option: &'a str) -> &mut Self {
+        self.option = option;
         self
     }
 }
 
-impl<'a, T> Builder for ActionSettingBuilder<'a, T>
-where
-    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
-{
-    type Result = Option<ActionSetting<'a, T>>;
-
-    fn build(self) -> Self::Result {
-        if self.action.is_none() {
-            None
-        } else {
-            Some(ActionSetting::new(
-                self.action.unwrap(),
-                self.option.unwrap_or_default(),
-            ))
-        }
-    }
-}
 
 #[derive(Debug, PartialEq, Serialize, Default)]
 pub struct ACLRule<'a, T> {

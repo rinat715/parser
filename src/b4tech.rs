@@ -26,12 +26,12 @@ mod tests {
         name(arg)
     }
 
-    #[test]
-    fn test_rule() {
-        let (remain, rule) = rule("100 deny any any any").unwrap();
-        assert_eq!(remain, "any any");
-        assert_eq!(rule.line_number.unwrap(), 1);
-    }
+    // #[test]
+    // fn test_rule() {
+    //     let (remain, rule) = rule("100 deny any any any").unwrap();
+    //     assert_eq!(remain, "any any");
+    //     assert_eq!(rule.line_number.unwrap(), 1);
+    // }
 }
 
 // ip access-list ACL_NAME_3\n

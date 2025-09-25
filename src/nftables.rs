@@ -17,6 +17,7 @@ use d::BuildOperatorType;
 use domain as d;
 use domain::Builder;
 use macros::BuildOperatorType;
+use macros::validate_args;
 
 type ActionType = d::nftables::ActionType;
 type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
@@ -52,6 +53,16 @@ mod tests {
             flag_value("FIN,SYN,ACK").unwrap(),
             ("", vec!["FIN", "SYN", "ACK"])
         )
+    }
+
+    // TODO тесты макросов унести куда будь
+    #[test]
+    fn test_test_all() {
+        assert!(test_all(vec![1], Some(String::new())).unwrap());
+        assert!(test_all(vec![], None).is_none());
+
+        assert!(test_any(vec![1], vec![1]).unwrap());
+        assert!(test_any(vec![1],  vec![]).is_none())
     }
 
     #[test]
@@ -168,7 +179,6 @@ fn unknown_part(input: &str) -> IResult<&str, &str> {
 
     recognize(pair(opt(alt((tag(" -"), tag(" !")))), until_eof)).parse(input)
 }
-
 
 #[derive(Serialize, Clone, PartialEq, BuildOperatorType)]
 struct Operator<T>(T);
@@ -373,6 +383,7 @@ enum OptionType<'a> {
 struct RawACLRule<'a> {
     #[serde(skip_serializing_if = "d::is_empty")]
     action_modifiers: Vec<ActionSetting<'a>>,
+    log_level: Option<ActionSetting<'a>>,
     name: Option<&'a str>,
     #[serde(flatten)]
     protocol: Option<d::Protocol<'a>>,
@@ -396,7 +407,13 @@ impl<'a> RawACLRule<'a> {
             Token::Error(v) => debug!("Error: {:?}", v),
             Token::Action(v) => self.action = Some(v),
             Token::Option(v) => self.option = Some(v),
-            Token::ActionModifier(v) => self.action_modifiers.push(v),
+            Token::ActionModifier(v) => {
+                if v.is_type(ActionType::LogLevel) {
+                    self.log_level = Some(v)
+                } else {
+                    self.action_modifiers.push(v)
+                }
+            }
             Token::Name(v) => self.name = Some(v),
             Token::Protocol(v) => self.protocol = Some(v),
             Token::Ports(v) => self.ports = v,
@@ -412,42 +429,79 @@ impl<'a> RawACLRule<'a> {
     }
 }
 
+fn action_setting<'a>(action: Option<ActionType>, option: Option<OptionType<'a>>) -> ActionSetting {
+    match (action, option) {
+        (Some(action), Some(option)) => {
+            if let OptionType::Value(v) = option {
+                return ActionSetting::new(action, v);
+            }
+        }
+        (Some(action), None) => return ActionSetting::new(action, Default::default()),
+        (None, Some(option)) => match option {
+            OptionType::Goto(v) => return ActionSetting::new(ActionType::GOTO, v),
+            OptionType::Jump(v) => return ActionSetting::new(ActionType::JUMP, v),
+            OptionType::Value(_) => (),
+        },
+        (None, None) => (),
+    }
+    return ActionSetting::default();
+}
+
+fn action_modifiers<'a>(
+    action: &Option<ActionType>,
+    log_level: Option<ActionSetting<'a>>,
+    action_modifiers: Vec<ActionSetting<'a>>,
+) -> Vec<ActionSetting<'a>> {
+    let first = match (action, log_level) {
+        (Some(ActionType::LOG), Some(v)) => v,
+        (Some(ActionType::LOG), None) => d::ActionSetting::new(ActionType::LogLevel, "warning"),
+        _ => return vec![],
+    };
+    let mut result = Vec::with_capacity(action_modifiers.len() + 1);
+    result.push(first);
+    result.extend(action_modifiers);
+    result
+}
+
+#[validate_args(all)]
+fn tcp_udp_options<'a>(
+    sports: Vec<d::IntOperator>,
+    dports: Vec<d::IntOperator>,
+    ports: Vec<d::IntOperator>,
+    tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
+) -> Option<d::TCPUDPOptions<'a>> {
+    
+    Some(d::TCPUDPOptions::new(
+        sports
+            .into_iter()
+            .chain(ports.clone().into_iter())
+            .collect(),
+        dports.into_iter().chain(ports.into_iter()).collect(),
+        tcp_flags.map_or(vec![], |v| vec![v.0, v.1]),
+    ))
+}
+
 impl<'a> d::Builder for RawACLRule<'a> {
     type Result = d::nftables::ACLRule<'a, d::nftables::ActionType>;
 
     fn build(self) -> Self::Result {
-        let mut action_bulder = d::ActionSettingBuilder::default();
+        let action_modifiers =
+            action_modifiers(&self.action, self.log_level, self.action_modifiers);
+        let action = action_setting(self.action, self.option);
 
-        if let Some(v) = self.option {
-            match v {
-                OptionType::Goto(v) => action_bulder.action(Some(ActionType::GOTO)).option(Some(v)),
-                OptionType::Jump(v) => action_bulder.action(Some(ActionType::JUMP)).option(Some(v)),
-                OptionType::Value(v) => action_bulder.option(Some(v)),
-            };
-        }
-        action_bulder.action(self.action);
+        let normalized_action = action.normalized_action().ok();
 
-        let mut acl_rule = ACLRuleBuilder::default();
-
-        acl_rule.action(action_bulder, self.action_modifiers);
-
-        let mut tcp_udp_options = d::TCPUDPOptions::default();
-
-        tcp_udp_options
-            .source_ports(self.sports)
-            .source_ports(self.ports.clone())
-            .destination_ports(self.dports)
-            .destination_ports(self.ports);
-
-        if let Some(v) = self.tcp_flags {
-            tcp_udp_options.flags(vec![v.0, v.1]);
-        }
-
-        if let Some(v) = self.protocol {
-            acl_rule.protocol(v, tcp_udp_options.build());
-        }
-
-        acl_rule.build()
+        d::nftables::ACLRule::new(
+            action,
+            action_modifiers,
+            normalized_action,
+            d::nftables::ProtocolSetting::new(
+                self.protocol.unwrap_or(d::Protocol::ip()),
+                tcp_udp_options(self.sports, self.dports, self.ports, self.tcp_flags),
+                None,
+                None,
+            ),
+        )
     }
 }
 
@@ -511,96 +565,6 @@ where
     .parse(input)
 }
 
-struct ActionModifiers<'a>(Vec<ActionSetting<'a>>);
-impl<'a> ActionModifiers<'a> {
-    fn push(&mut self, item: ActionSetting<'a>) {
-        if item.is_type(ActionType::LogLevel) {
-            self.0[0] = item
-        } else {
-            self.0.push(item)
-        }
-    }
-}
-
-impl Default for ActionModifiers<'_> {
-    fn default() -> Self {
-        Self(vec![d::ActionSetting::new(ActionType::LogLevel, "warning")])
-    }
-}
-
-pub struct ACLRuleBuilder<'a, T> {
-    action_modifiers: Vec<d::ActionSetting<'a, T>>,
-    action: d::ActionSetting<'a, T>,
-    normalized_action: Option<d::NormalizedAction>,
-    protocol: d::nftables::ProtocolSetting<'a>,
-}
-
-impl<'a> ACLRuleBuilder<'a, ActionType> {
-    fn action(
-        &mut self,
-        builder: d::ActionSettingBuilder<'a, ActionType>,
-        action_modifiers: Vec<ActionSetting<'a>>,
-    ) -> &mut Self {
-        let action = builder.build();
-
-        if let Some(i) = action {
-            self.normalized_action = i.normalized_action().ok();
-
-            if i.is_type(ActionType::LOG) {
-                let mut action_modifiers_builder = ActionModifiers::default();
-                action_modifiers
-                    .into_iter()
-                    .for_each(|i| action_modifiers_builder.push(i));
-
-                self.action_modifiers = action_modifiers_builder.0
-            }
-
-            self.action = i;
-        }
-        self
-    }
-    fn protocol(
-        &mut self,
-        protocol: d::Protocol<'a>,
-        tcp_upd_options: d::TCPUDPOptions<'a>,
-    ) -> &mut Self {
-        self.protocol =
-            d::nftables::ProtocolSetting::new(protocol, Some(tcp_upd_options), None, None);
-        self
-    }
-}
-
-impl<'a> d::Builder for ACLRuleBuilder<'a, ActionType> {
-    // для каждого типа T который реализует Builder<Result = domain::ActionSetting> будет создана своя версия action<конкретный тип>
-    // тип Builder дропается в build()
-    // все билдеры одноразовые
-
-    type Result = d::nftables::ACLRule<'a, d::nftables::ActionType>;
-
-    fn build(self) -> Self::Result {
-        d::nftables::ACLRule::new(
-            self.action,
-            self.action_modifiers,
-            self.normalized_action,
-            self.protocol,
-        )
-    }
-}
-
-impl<'a> Default for ACLRuleBuilder<'a, ActionType> {
-    fn default() -> Self {
-        let action = d::ActionSetting::default();
-        let normalized_action = action.normalized_action();
-
-        Self {
-            action_modifiers: vec![],
-            action: action,
-            normalized_action: normalized_action.ok(),
-            protocol: d::nftables::ProtocolSetting::default(),
-        }
-    }
-}
-
 pub fn rule<'a>(
     input: &'a str,
     user_chains: &Vec<&'a str>,
@@ -608,4 +572,15 @@ pub fn rule<'a>(
     let (remain, rule) = parser(input, |v| user_chains.contains(&v))?;
 
     Ok((remain, rule.build()))
+}
+
+#[validate_args(all)]
+fn test_all(a: Vec<u16>, b: Option<String>) -> Option<bool> {
+    Some(true)
+}
+
+
+#[validate_args(any)]
+fn test_any(a: Vec<u16>, b: Vec<u16>) -> Option<bool> {
+    Some(true)
 }

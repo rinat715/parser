@@ -50,7 +50,7 @@ impl TestSuit {
                     let mut index = 0;
                     for inner in vec![#(#expected),*] {
 
-                        println!("Run {}", index);
+                        println!("Run {}", index); // TODO не Run a Build
                         let actual = toml::to_string(&result[index]).unwrap();
 
                         assert_eq!(
