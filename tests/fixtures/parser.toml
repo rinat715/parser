@@ -130,11 +130,11 @@ name = "INPUT"
 operator = "eq"
 values = ["udp"]
 
-[[test_14.expected.sports]]
+[[test_14.expected.source_ports]]
 operator = "eq"
 values = [2]
 
-[[test_14.expected.dports]]
+[[test_14.expected.destination_ports]]
 operator = "eq"
 values = [1]
 

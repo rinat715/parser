@@ -1,5 +1,5 @@
 use nom::{
-    branch::alt,
+    branch::{alt, Alt},
     bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, hex_digit1, line_ending, not_line_ending, space1, u16},
     combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value, verify},
@@ -16,8 +16,9 @@ use common as c;
 use d::BuildOperatorType;
 use domain as d;
 use domain::Builder;
-use macros::BuildOperatorType;
 use macros::validate_args;
+use macros::BuildOperatorType;
+use macros::{alt_impl, Mapping};
 
 type ActionType = d::nftables::ActionType;
 type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
@@ -62,7 +63,7 @@ mod tests {
         assert!(test_all(vec![], None).is_none());
 
         assert!(test_any(vec![1], vec![1]).unwrap());
-        assert!(test_any(vec![1],  vec![]).is_none())
+        assert!(test_any(vec![1], vec![]).is_none())
     }
 
     #[test]
@@ -378,54 +379,52 @@ enum OptionType<'a> {
     Value(&'a str),
 }
 
+trait Mapping<T> {
+    fn mapping(&mut self, target: T);
+}
+
 // представление правила в плоской структуре
-#[derive(Serialize, Default)]
+#[derive(Mapping, Serialize, Default)]
+#[mapping(Token)]
+#[mapping(ActionModifier = action_modifier)]
+#[mapping(Error = error)]
 struct RawACLRule<'a> {
     #[serde(skip_serializing_if = "d::is_empty")]
+    #[mapping(skip)]
     action_modifiers: Vec<ActionSetting<'a>>,
+    #[mapping(skip)]
     log_level: Option<ActionSetting<'a>>,
     name: Option<&'a str>,
     #[serde(flatten)]
     protocol: Option<d::Protocol<'a>>,
     #[serde(skip_serializing_if = "d::is_empty")]
-    sports: Vec<d::IntOperator>,
+    source_ports: Vec<d::IntOperator>,
     #[serde(skip_serializing_if = "d::is_empty")]
-    dports: Vec<d::IntOperator>,
+    destination_ports: Vec<d::IntOperator>,
     #[serde(skip_serializing_if = "d::is_empty")]
     ports: Vec<d::IntOperator>,
+    #[mapping(rename = TCPFlags)]
     tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
     action: Option<ActionType>,
     option: Option<OptionType<'a>>,
+    #[mapping(rename = TTL)]
     ttl: Option<d::IntOperator>,
     fragments: Option<d::IntOperator>,
+    #[mapping(rename = DSCP)]
     dscp: Option<d::IntOperator>,
     packet_length: Option<d::IntOperator>,
 }
+
 impl<'a> RawACLRule<'a> {
-    fn add(&mut self, token: Token<'a>) {
-        match token {
-            Token::Error(v) => debug!("Error: {:?}", v),
-            Token::Action(v) => self.action = Some(v),
-            Token::Option(v) => self.option = Some(v),
-            Token::ActionModifier(v) => {
-                if v.is_type(ActionType::LogLevel) {
-                    self.log_level = Some(v)
-                } else {
-                    self.action_modifiers.push(v)
-                }
-            }
-            Token::Name(v) => self.name = Some(v),
-            Token::Protocol(v) => self.protocol = Some(v),
-            Token::Ports(v) => self.ports = v,
-            Token::SourcePorts(v) => self.sports = v,
-            Token::DestinationPorts(v) => self.dports = v,
-            Token::TCPFlags(v) => self.tcp_flags = Some(v),
-            Token::Space => (),
-            Token::DSCP(v) => self.ttl = Some(v),
-            Token::Fragments(v) => self.fragments = Some(v),
-            Token::PacketLength(v) => self.packet_length = Some(v),
-            Token::TTL(v) => self.ttl = Some(v),
+    fn action_modifier(&mut self, v: d::ActionSetting<'a, ActionType>) {
+        if v.is_type(ActionType::LogLevel) {
+            self.log_level = Some(v)
+        } else {
+            self.action_modifiers.push(v)
         }
+    }
+    fn error(&mut self, v: &'a str) {
+       debug!("Error: {:?}", v)
     }
 }
 
@@ -470,7 +469,6 @@ fn tcp_udp_options<'a>(
     ports: Vec<d::IntOperator>,
     tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
 ) -> Option<d::TCPUDPOptions<'a>> {
-    
     Some(d::TCPUDPOptions::new(
         sports
             .into_iter()
@@ -497,7 +495,7 @@ impl<'a> d::Builder for RawACLRule<'a> {
             normalized_action,
             d::nftables::ProtocolSetting::new(
                 self.protocol.unwrap_or(d::Protocol::ip()),
-                tcp_udp_options(self.sports, self.dports, self.ports, self.tcp_flags),
+                tcp_udp_options(self.source_ports, self.destination_ports, self.ports, self.tcp_flags),
                 None,
                 None,
             ),
@@ -523,43 +521,50 @@ enum Token<'a> {
     PacketLength(d::IntOperator),
 }
 
+impl<'a> Token<'a> {
+    fn action(v: &'a str) -> Self {
+        Self::Action(ActionType::from_str(v).unwrap())
+    }
+    fn goto(v: &'a str) -> Self {
+        Self::Option(OptionType::Goto(v))
+    }
+    fn jump(v: &'a str) -> Self {
+        Self::Option(OptionType::Jump(v))
+    }
+    fn option(v: &'a str) -> Self {
+        Self::Option(OptionType::Value(v))
+    }
+    fn space(_: &'a str) -> Self {
+        Token::Space
+    }
+}
+
 fn parser<F>(input: &str, is_user_chain: F) -> IResult<&str, RawACLRule>
 where
     F: Fn(&str) -> bool,
 {
-    let parser = alt((
-        map(name("-A"), Token::Name),
-        map(verify(tag_value("-j"), is_user_chain), |value| {
-            Token::Option(OptionType::Jump(value))
-        }),
-        map(
-            verify(tag_value("-j"), |value| ActionType::from_str(value).is_ok()),
-            |value| Token::Action(ActionType::from_str(value).unwrap()),
-        ),
-        map(tag_value("--reject-with"), |v| {
-            Token::Option(OptionType::Value(v))
-        }),
-        map(tag_value("-g"), |value| {
-            Token::Option(OptionType::Goto(value))
-        }),
-        map(ip_options, Token::ActionModifier),
-        map(port("--ports"), Token::Ports),
-        map(alt((port("--sports"), port("--sport"))), Token::SourcePorts),
-        map(
-            alt((port("--dports"), port("--dport"))),
-            Token::DestinationPorts,
-        ),
-        map(protocol, Token::Protocol),
-        map(tcp_flags, Token::TCPFlags),
-        map(ttl, Token::TTL),
-        map(dscp, Token::DSCP),
-        map(fragments, Token::Fragments),
-        map(space1, |_| Token::Space),
-        map(unknown_part, Token::Error),
-    ));
+    let parser = alt_impl!(
+        Token,
+        "Name" = name("-A"),
+        "jump" = verify(tag_value("-j"), is_user_chain),
+        "action" = verify(tag_value("-j"), |value| ActionType::from_str(value).is_ok()),
+        "option" = tag_value("--reject-with"),
+        "goto" = tag_value("-g"),
+        "ActionModifier" = ip_options,
+        "Ports" = port("--ports"),
+        "SourcePorts" = alt((port("--sports"), port("--sport"))),
+        "DestinationPorts" = alt((port("--dports"), port("--dport"))),
+        "Protocol" = protocol,
+        "TCPFlags" = tcp_flags,
+        "TTL" = ttl,
+        "DSCP" = dscp,
+        "Fragments" = fragments,
+        "space" = space1,
+        "Error" = unknown_part,
+    );
 
     fold_many1(parser, RawACLRule::default, |mut acc, item: Token| {
-        acc.add(item);
+        acc.mapping(item);
         acc
     })
     .parse(input)
@@ -578,7 +583,6 @@ pub fn rule<'a>(
 fn test_all(a: Vec<u16>, b: Option<String>) -> Option<bool> {
     Some(true)
 }
-
 
 #[validate_args(any)]
 fn test_any(a: Vec<u16>, b: Vec<u16>) -> Option<bool> {
