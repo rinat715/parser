@@ -10,6 +10,7 @@ use nom::{
 };
 
 mod ip;
+pub use ip::*;
 
 use domain as d;
 use d::BuildOperatorType;

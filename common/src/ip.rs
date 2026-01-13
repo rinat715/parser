@@ -37,7 +37,7 @@ fn ip6(input: &str) -> IResult<&str, d::IP> {
     map_res(parser, |r| d::IP::parse_ip6(&r)).parse(input) // MapRes а AddrParseError подавится
 }
 
-pub fn ip(input: &str) -> IResult<&str, d::IP> {
+pub fn ip_parser(input: &str) -> IResult<&str, d::IP> {
     alt((ip4, ip6)).parse(input)
 }
 
@@ -46,33 +46,33 @@ mod tests {
 
     #[test]
     fn test_ipv4() {
-        let (remain, res) = ip("127.0.0.1").unwrap();
+        let (remain, res) = ip_parser("127.0.0.1").unwrap();
         assert_eq!(remain, "");
         assert_eq!(res, d::IP::new_ip4(127, 0, 0, 1));
 
-        let (remain, res) = ip("169.254.50.30").unwrap();
+        let (remain, res) = ip_parser("169.254.50.30").unwrap();
         assert_eq!(remain, "");
         assert_eq!(res, d::IP::new_ip4(169, 254, 50, 30));
     }
 
     #[test]
     fn test_ipv6() {
-        let (remain, res) = ip("123::250:56ff:fea6:430e").unwrap();
+        let (remain, res) = ip_parser("123::250:56ff:fea6:430e").unwrap();
         assert_eq!(remain, "");
         assert_eq!(
             res,
             d::IP::new_ip6(0x123, 0, 0, 0, 0x250, 0x56ff, 0xfea6, 0x430e)
         );
 
-        let (remain, res) = ip("::1 dfdfdf").unwrap();
+        let (remain, res) = ip_parser("::1 dfdfdf").unwrap();
         assert_eq!(remain, " dfdfdf");
         assert_eq!(res, d::IP::new_ip6(0, 0, 0, 0, 0, 0, 0, 0x1));
 
-        let (remain, res) = ip("2001:d00::").unwrap();
+        let (remain, res) = ip_parser("2001:d00::").unwrap();
         assert_eq!(remain, "");
         assert_eq!(res, d::IP::new_ip6(0x2001, 0xd00, 0, 0, 0, 0, 0, 0));
 
-        let result = ip(":");
+        let result = ip_parser(":");
 
         assert_eq!(
             result,
@@ -82,7 +82,7 @@ mod tests {
             )))
         );
 
-        let result = ip("Z");
+        let result = ip_parser("Z");
 
         assert_eq!(
             result,
@@ -92,7 +92,7 @@ mod tests {
             )))
         );
 
-        let result = ip("");
+        let result = ip_parser("");
 
         assert_eq!(
             result,

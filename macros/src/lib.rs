@@ -293,6 +293,3 @@ mod tests {
         );
     }
 }
-
-//syn::Error::new_spanned("Target", "Empty mapping")
-//

@@ -13,7 +13,6 @@ domain = { path = "domain" }
 macros = { path = "macros" }
 common = { path = "common" }
 
-
 [dev-dependencies]
 tester = { path = "tester" }
 diff = { path = "diff" }
