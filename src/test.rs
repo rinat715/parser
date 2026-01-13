@@ -1,7 +1,22 @@
+use macros::validate_args;
+
+#[validate_args(all)]
+fn test_all(a: Vec<u16>, b: Option<String>) -> Option<bool> {
+    Some(true)
+}
+
+#[validate_args(any)]
+fn test_any(a: Vec<u16>, b: Vec<u16>) -> Option<bool> {
+    Some(true)
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use common::ip_parser;
     use domain::ip::IPAddress;
+    use super::*;
 
     #[test]
     fn test_ip_address() {
@@ -44,4 +59,14 @@ Version = 4
 "
         )
     }
+
+    #[test]
+    fn test_validate_args() {
+        assert!(test_all(vec![1], Some(String::new())).unwrap());
+        assert!(test_all(vec![], None).is_none());
+
+        assert!(test_any(vec![1], vec![1]).unwrap());
+        assert!(test_any(vec![1], vec![]).is_none())
+    }
+
 }
