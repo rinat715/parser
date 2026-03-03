@@ -1,4 +1,5 @@
-use serde::{ser::SerializeSeq, Serialize, Serializer};
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyString};
 use serde_derive::Serialize;
 
 pub mod operators;
@@ -7,25 +8,10 @@ pub use operators::*;
 pub mod ip;
 pub use ip::IP;
 pub mod nftables;
+use macros::ToPyDict;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnumError; // TODO нормальное название
-
-#[allow(dead_code)]
-fn ser_vec_options<S, T>(values: &Vec<Option<T>>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-    T: Serialize,
-{
-    let mut seq = serializer.serialize_seq(Some(values.len()))?;
-    for v in values {
-        match v {
-            Some(v) => seq.serialize_element(v)?,
-            None => seq.serialize_element("")?,
-        }
-    }
-    seq.end()
-}
 
 pub fn is_empty<T>(values: &Vec<T>) -> bool {
     values.is_empty()
@@ -51,7 +37,16 @@ impl<'a> Protocol<'a> {
     }
 }
 
-#[derive(Serialize, Default)]
+impl<'a> IntoPy<PyObject> for Protocol<'a> {
+    fn into_py(self, py: Python) -> PyObject {
+        match self {
+            Self::String(v) => v.into_py(py),
+            Self::Number(v) => v.into_py(py),
+        }
+    }
+}
+
+#[derive(Serialize, Default, ToPyDict)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
 pub struct TCPUDPOptions<'a> {
     #[serde(skip_serializing_if = "is_empty")]
@@ -76,7 +71,7 @@ impl<'a> TCPUDPOptions<'a> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToPyDict)]
 pub struct IPv4Options {
     fragments: Vec<IntOperator>,
     dscp: Vec<IntOperator>,
@@ -106,7 +101,7 @@ impl IPv4Options {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToPyDict)]
 pub struct ICMPOptions {
     code: Vec<IntOperator>,
     type_: Vec<IntOperator>,
@@ -127,7 +122,8 @@ pub struct ProtocolSetting<'a, T> {
     #[serde(flatten)]
     protocol: Protocol<'a>,
     #[serde(rename(serialize = "TCPUDPOptions", deserialize = "TCPUDPOptions"))]
-    tcp_udp_options: Option<TCPUDPOptions<'a>>,
+    tcp_udp_options: Option<TCPUDPOptions<'a>>, 
+    #[serde(rename(serialize = "IPv4Options", deserialize = "IPv4Options"))]
     ip_options: Option<T>,
     icmp_options: Option<ICMPOptions>,
 }
@@ -150,14 +146,38 @@ impl<'a, T> ProtocolSetting<'a, T> {
     }
 }
 
+impl<'a, T> IntoPy<PyObject> for ProtocolSetting<'a, T>
+where
+    T: IntoPy<PyObject>,
+{
+    fn into_py(self, py: Python) -> PyObject {
+        let dict = PyDict::new(py);
+        dict.set_item::<PyObject, PyObject>("protocol".into_py(py), self.protocol.into_py(py))
+            .expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>(
+            "tcp_udp_options".into_py(py),
+            self.tcp_udp_options.into_py(py),
+        )
+        .expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("ip_options".into_py(py), self.ip_options.into_py(py))
+            .expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>(
+            "icmp_options".into_py(py),
+            self.icmp_options.into_py(py),
+        )
+        .expect("Failed to set_item on dict");
+        dict.into()
+    }
+}
+
 #[derive(Clone)]
 pub enum StringOrU16<'a> {
-    // Value
     String(&'a str),
     Number(u16),
 }
 
 impl<'a> Protocol<'a> {
+    // TODO ??????
     pub fn new(operator_type: OperatorType, value: StringOrU16<'a>) -> Self {
         match value {
             StringOrU16::Number(v) => Self::Number(IntOperator::new(operator_type, vec![v])),
@@ -174,6 +194,18 @@ pub enum NormalizedAction {
     JUMP,
     PASS,
     RETURN,
+}
+
+impl<'a> IntoPy<PyObject> for NormalizedAction {
+    fn into_py(self, py: Python) -> PyObject {
+        match self {
+            Self::PERMIT => PyString::new(py, "PERMIT").into_py(py),
+            Self::DENY => PyString::new(py, "DENY").into_py(py),
+            Self::JUMP => PyString::new(py, "JUMP").into_py(py),
+            Self::PASS => PyString::new(py, "PASS").into_py(py),
+            Self::RETURN => PyString::new(py, "RETURN").into_py(py),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Default)]
@@ -218,6 +250,19 @@ where
     }
 }
 
+impl<'a, T> IntoPy<PyObject> for ActionSetting<'a, T>
+where
+    T: IntoPy<PyObject>,
+{
+    fn into_py(self, py: Python) -> PyObject {
+        let dict = PyDict::new(py);
+        dict.set_item::<PyObject, PyObject>("operator".into_py(py), self.action.into_py(py))
+            .expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("values".into_py(py), self.option.into_py(py))
+            .expect("Failed to set_item on dict");
+        dict.into_py(py)
+    }
+}
 
 #[derive(Debug, PartialEq, Serialize, Default)]
 pub struct ACLRule<'a, T> {

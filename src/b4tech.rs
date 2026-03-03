@@ -143,7 +143,7 @@ fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IntOperator> {
         let operator = terminated(operator, space1);
         let parser = preceded(name, pair(operator, c::pair_sep_space));
 
-        c::port(parser).parse(input)
+        c::int_operator(parser).parse(input)
     }
 }
 

@@ -1,5 +1,5 @@
 use nom::{
-    branch::{alt, Alt},
+    branch::alt,
     bytes::complete::{tag, take, take_until},
     character::complete::{alpha1, hex_digit1, line_ending, not_line_ending, space1, u16},
     combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value, verify},
@@ -14,9 +14,9 @@ use std::str::FromStr;
 use c::{pair_sep_colon, preceded_tag, separated_by_comma};
 use common as c;
 use d::BuildOperatorType;
-use domain as d;
 use domain::Builder;
-use macros::validate_args;
+use domain::{self as d};
+use macros::in_not_null;
 use macros::BuildOperatorType;
 use macros::{alt_impl, Mapping};
 
@@ -62,6 +62,16 @@ mod tests {
         assert_eq!("", rem);
         assert_eq!(
             "operator = \"eq\"\nvalues = [32]\n",
+            toml::to_string(&res).unwrap()
+        )
+    }
+
+    #[test]
+    fn test_length() {
+        let (rem, res) = length("--length 300").unwrap();
+        assert_eq!("", rem);
+        assert_eq!(
+            "operator = \"eq\"\nvalues = [300]\n",
             toml::to_string(&res).unwrap()
         )
     }
@@ -202,34 +212,28 @@ fn single_operator(s: &str) -> IResult<&str, d::OperatorType> {
     map(operator, |v| v.single()).parse(s)
 }
 
-// --ttl-eq
-// --ttl-gt
-// --ttl-lt
-fn ttl_operator(s: &str) -> IResult<&str, d::OperatorType> {
-    alt((
-        value(d::OperatorType::EQ, tag("eq")),
-        value(d::OperatorType::GT, tag("gt")),
-        value(d::OperatorType::LT, tag("lt")),
-    ))
-    .parse(s)
-}
-
-fn ttl_parser(s: &str) -> IResult<&str, (d::OperatorType, u16)> {
-    let token = preceded(tag("--ttl-"), ttl_operator);
-    separated_pair(token, space1, u16).parse(s)
-}
-
 // # основной вывод:
 // --ttl-gt 200
 // еще пример
 // --ttl-eq 100
 //--ttl-gt 200
 fn ttl(s: &str) -> IResult<&str, d::IntOperator> {
-    c::ttl(ttl_parser).parse(s)
+    // --ttl-eq
+    // --ttl-gt
+    // --ttl-lt
+    let ttl_operator = alt((
+        value(d::OperatorType::EQ, tag("eq")),
+        value(d::OperatorType::GT, tag("gt")),
+        value(d::OperatorType::LT, tag("lt")),
+    ));
+
+    let ttl_parser = separated_pair(preceded(tag("--ttl-"), ttl_operator), space1, u16);
+
+    c::single_int_operator(ttl_parser).parse(s)
 }
 
 // -f ! -f
-fn fragments(s: &str) -> IResult<&str, d::IntOperator> {
+fn fragment(s: &str) -> IResult<&str, d::IntOperator> {
     map(
         pair(map(operator, |v| v.fragment_operator()), tag("-f")),
         |pair| pair.0,
@@ -249,6 +253,58 @@ fn dscp(s: &str) -> IResult<&str, d::IntOperator> {
     c::dscp(parser).parse(s)
 }
 
+// --length 300
+// --length 300:301
+// --length !300:301
+fn length(s: &str) -> IResult<&str, d::IntOperator> {
+    let tag_ = pair(tag("--length"), space1);
+    let value = pair(operator, pair_sep_colon);
+    let parser = preceded(tag_, value);
+
+    c::int_operator(parser).parse(s)
+}
+
+fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
+    // [!] --rr  = 7
+    // [!] --ts = 68
+    // [!] --ra = 148
+    let parser = pair(
+        single_operator,
+        alt((
+            value(7, tag("--rr")),
+            value(68, tag("--ts")),
+            value(148, tag("--ra")),
+        )),
+    );
+
+    alt((
+        c::single_int_operator(parser),
+        // --ssrr = eq 137
+        // --lsrr = eq 131
+        // --no-srr = neq [131, 137]
+        //--any-opt  = eq 0
+        alt((
+            value(
+                d::IntOperator::new(d::OperatorType::EQ, vec![137]),
+                tag("--ssrr"),
+            ),
+            value(
+                d::IntOperator::new(d::OperatorType::EQ, vec![131]),
+                tag("--lsrr"),
+            ),
+            value(
+                d::IntOperator::new(d::OperatorType::NEQ, vec![131, 137]),
+                tag("--no-srr"),
+            ),
+            value(
+                d::IntOperator::new(d::OperatorType::EQ, vec![0]),
+                tag("--any-opt"),
+            ),
+        )),
+    ))
+    .parse(s)
+}
+
 //  IntOperator --sport 500:600 --dport 45
 // ! --ports 50,300:400
 // --ports 50
@@ -258,9 +314,9 @@ fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>
         let port = map(pair_sep_colon, |v| vec![v]);
         let ports = separated_by_comma(pair_sep_colon);
 
-        let parser = pair(single_operator, preceded_tag(arg, alt((port, ports))));
+        let parser = pair(operator, preceded_tag(arg, alt((port, ports))));
 
-        c::ports(parser).parse(input)
+        c::many_int_operator(parser).parse(input)
     }
 }
 
@@ -377,6 +433,7 @@ trait Mapping<T> {
 #[derive(Mapping, Serialize, Default)]
 #[mapping(Token)]
 #[mapping(ActionModifier = action_modifier)]
+#[mapping(IPProtocolOption = ip_protocol_option)]
 #[mapping(Error = error)]
 struct RawACLRule<'a> {
     #[serde(skip_serializing_if = "d::is_empty")]
@@ -399,10 +456,13 @@ struct RawACLRule<'a> {
     option: Option<OptionType<'a>>,
     #[mapping(rename = TTL)]
     ttl: Option<d::IntOperator>,
-    fragments: Option<d::IntOperator>,
+    fragment: Option<d::IntOperator>,
     #[mapping(rename = DSCP)]
     dscp: Option<d::IntOperator>,
     packet_length: Option<d::IntOperator>,
+    #[serde(skip_serializing_if = "d::is_empty")]
+    #[mapping(skip)]
+    ip_protocol_options: Vec<d::IntOperator>,
 }
 
 impl<'a> RawACLRule<'a> {
@@ -413,12 +473,19 @@ impl<'a> RawACLRule<'a> {
             self.action_modifiers.push(v)
         }
     }
+    fn ip_protocol_option(&mut self, v: d::IntOperator) {
+        self.ip_protocol_options.push(v)
+    }
+
     fn error(&mut self, v: &'a str) {
-       debug!("Error: {:?}", v)
+        debug!("Error: {:?}", v)
     }
 }
 
-fn action_setting<'a>(action: Option<ActionType>, option: Option<OptionType<'a>>) -> ActionSetting {
+fn action_setting<'a>(
+    action: Option<ActionType>,
+    option: Option<OptionType<'a>>,
+) -> ActionSetting<'a> {
     match (action, option) {
         (Some(action), Some(option)) => {
             if let OptionType::Value(v) = option {
@@ -452,7 +519,7 @@ fn action_modifiers<'a>(
     result
 }
 
-#[validate_args(all)]
+#[in_not_null(all)]
 fn tcp_udp_options<'a>(
     sports: Vec<d::IntOperator>,
     dports: Vec<d::IntOperator>,
@@ -466,6 +533,25 @@ fn tcp_udp_options<'a>(
             .collect(),
         dports.into_iter().chain(ports.into_iter()).collect(),
         tcp_flags.map_or(vec![], |v| vec![v.0, v.1]),
+    ))
+}
+
+
+#[in_not_null(all)]
+fn ip_v_4options(
+    ttl: Option<d::IntOperator>,
+    fragment: Option<d::IntOperator>,
+    dscp: Option<d::IntOperator>,
+    packet_length: Option<d::IntOperator>,
+    ip_protocol_options: Vec<d::IntOperator>,
+) -> Option<d::IPv4Options> {
+    Some(d::IPv4Options::new(
+        fragment.map_or(vec![], |v| vec![v]),
+        dscp.map_or(vec![], |v| vec![v]),
+        vec![],
+        ip_protocol_options,
+        ttl.map_or(vec![], |v| vec![v]),
+        packet_length.map_or(vec![], |v| vec![v]),
     ))
 }
 
@@ -485,8 +571,19 @@ impl<'a> d::Builder for RawACLRule<'a> {
             normalized_action,
             d::nftables::ProtocolSetting::new(
                 self.protocol.unwrap_or(d::Protocol::ip()),
-                tcp_udp_options(self.source_ports, self.destination_ports, self.ports, self.tcp_flags),
-                None,
+                tcp_udp_options(
+                    self.source_ports,
+                    self.destination_ports,
+                    self.ports,
+                    self.tcp_flags,
+                ),
+                ip_v_4options(
+                    self.ttl,
+                    self.fragment,
+                    self.dscp,
+                    self.packet_length,
+                    self.ip_protocol_options
+                ),
                 None,
             ),
         )
@@ -506,9 +603,10 @@ enum Token<'a> {
     SourcePorts(Vec<d::IntOperator>),
     TCPFlags((d::StringOperator<'a>, d::StringOperator<'a>)),
     TTL(d::IntOperator),
-    Fragments(d::IntOperator),
+    Fragment(d::IntOperator),
     DSCP(d::IntOperator),
     PacketLength(d::IntOperator),
+    IPProtocolOption(d::IntOperator),
 }
 
 impl<'a> Token<'a> {
@@ -529,7 +627,7 @@ impl<'a> Token<'a> {
     }
 }
 
-fn parser<F>(input: &str, is_user_chain: F) -> IResult<&str, RawACLRule>
+fn parser<F>(input: &'_ str, is_user_chain: F) -> IResult<&'_ str, RawACLRule<'_>>
 where
     F: Fn(&str) -> bool,
 {
@@ -548,7 +646,9 @@ where
         "TCPFlags" = tcp_flags,
         "TTL" = ttl,
         "DSCP" = dscp,
-        "Fragments" = fragments,
+        "Fragment" = fragment,
+        "PacketLength" = length,
+        "IPProtocolOption" = ip_protocol_options,
         "space" = space1,
         "Error" = unknown_part,
     );
@@ -568,5 +668,3 @@ pub fn rule<'a>(
 
     Ok((remain, rule.build()))
 }
-
-

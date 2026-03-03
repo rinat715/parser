@@ -1,8 +1,8 @@
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, u16, space1},
-    combinator::{map, value},
+    character::complete::{u16, space1},
+    combinator::{map},
     error::ParseError,
     multi::separated_list1,
     sequence::{pair, preceded, separated_pair},
@@ -64,15 +64,15 @@ pub fn pair_sep_space(s: &str) -> IResult<&str, d::SingleOrPair<u16>> {
     single_or_pair_u16(" ").parse(s)
 }
 
-fn ttl_build(operator: d::OperatorType, value: u16) -> d::IntOperator {
+fn single_int_operator_(operator: d::OperatorType, value: u16) -> d::IntOperator {
     d::IntOperator::new(operator.single(), vec![value])
 }
 
-pub fn ttl<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
+pub fn single_int_operator<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
 where
     F: Parser<&'a str, (d::OperatorType, u16), E>,
 {
-    map(f, |pair| ttl_build(pair.0, pair.1))
+    map(f, |pair| single_int_operator_(pair.0, pair.1))
 }
 
 fn dscp_build(value: u16) -> d::IntOperator {
@@ -93,32 +93,41 @@ where
     map(f, |(operator, value)| d::Protocol::new(operator, value))
 }
 
-fn port_build(operator: d::OperatorType, value: d::SingleOrPair<u16>) -> d::IntOperator {
+fn int_operator_<T>(operator: T, value: d::SingleOrPair<u16>) -> d::IntOperator 
+    where
+        T: BuildOperatorType,
+{
+    
     d::IntOperator::build(operator, value)
 }
 
-fn ports_build(
-    operator: d::OperatorType,
+fn many_int_operator_<T>(
+    operator: T,
     values: Vec<d::SingleOrPair<u16>>,
-) -> Vec<d::IntOperator> {
+) -> Vec<d::IntOperator> 
+where
+    T:BuildOperatorType + Clone, 
+{
     values
         .into_iter()
-        .map(|i| port_build(operator.clone(), i))
+        .map(|i| int_operator_(operator.clone(), i))
         .collect()
 }
 
-pub fn ports<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, Vec<d::IntOperator>, E>
+pub fn many_int_operator<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, Vec<d::IntOperator>, E>
 where
-    F: Parser<&'a str, (d::OperatorType, Vec<d::SingleOrPair<u16>>), E>,
+    T:BuildOperatorType + Clone,
+    F: Parser<&'a str, (T, Vec<d::SingleOrPair<u16>>), E>,
 {
-    map(f, |pair| ports_build(pair.0, pair.1))
+    map(f, |pair| many_int_operator_(pair.0, pair.1))
 }
 
-pub fn port<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
+pub fn int_operator<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
 where
-    F: Parser<&'a str, (d::OperatorType, d::SingleOrPair<u16>), E>,
+    T:BuildOperatorType,
+    F: Parser<&'a str, (T, d::SingleOrPair<u16>), E>,
 {
-    map(f, |pair| port_build(pair.0, pair.1))
+    map(f, |pair| int_operator_(pair.0, pair.1))
 }
 
 #[cfg(test)]

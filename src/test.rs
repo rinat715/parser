@@ -1,11 +1,11 @@
-use macros::validate_args;
+use macros::in_not_null;
 
-#[validate_args(all)]
+#[in_not_null(all)]
 fn test_all(a: Vec<u16>, b: Option<String>) -> Option<bool> {
     Some(true)
 }
 
-#[validate_args(any)]
+#[in_not_null(any)]
 fn test_any(a: Vec<u16>, b: Vec<u16>) -> Option<bool> {
     Some(true)
 }

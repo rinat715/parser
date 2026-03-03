@@ -1,5 +1,7 @@
 use crate::ProtocolSetting as ProtocolSettingDomain;
 use crate::{ActionSetting, ICMPOptions, IPv4Options, NormalizedAction, Protocol, TCPUDPOptions};
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyString};
 use serde_derive::Serialize;
 use std::str::FromStr;
 
@@ -75,6 +77,29 @@ impl TryInto<NormalizedAction> for ActionType {
     }
 }
 
+impl IntoPy<PyObject> for ActionType {
+    fn into_py(self, py: Python) -> PyObject {
+        match self {
+            Self::ACCEPT => PyString::new(py, "ACCEPT").into_py(py),
+            Self::DROP => PyString::new(py, "DROP").into_py(py),
+            Self::LOG => PyString::new(py, "LOG").into_py(py),
+            Self::NFLOG => PyString::new(py, "NFLOG").into_py(py),
+            Self::QUEUE => PyString::new(py, "QUEUE").into_py(py),
+            Self::REJECT => PyString::new(py, "REJECT").into_py(py),
+            Self::RETURN => PyString::new(py, "RETURN").into_py(py),
+            Self::GOTO => PyString::new(py, "GOTO").into_py(py),
+            Self::JUMP => PyString::new(py, "JUMP").into_py(py),
+            Self::PASS => PyString::new(py, "PASS").into_py(py),
+            Self::LogLevel => PyString::new(py, "log-level").into_py(py),
+            Self::LogPrefix => PyString::new(py, "log-prefix").into_py(py),
+            Self::LogTCPSequence => PyString::new(py, "log-tcp-sequence").into_py(py),
+            Self::LogTCPOptions => PyString::new(py, "log-tcp-options").into_py(py),
+            Self::LogIPOptions => PyString::new(py, "log-ip-options").into_py(py),
+            Self::LogUID => PyString::new(py, "log-uid").into_py(py),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ProtocolSetting<'a>(ProtocolSettingDomain<'a, IPv4Options>);
 impl<'a> ProtocolSetting<'a> {
@@ -102,9 +127,9 @@ impl Default for ProtocolSetting<'_> {
 
 #[derive(Serialize)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
-pub struct ACLRule<'a, T> {
-    action_modifiers: Vec<ActionSetting<'a, T>>,
-    action: Vec<ActionSetting<'a, T>>,
+pub struct ACLRule<'a, ActionType> {
+    action_modifiers: Vec<ActionSetting<'a, ActionType>>,
+    action: Vec<ActionSetting<'a, ActionType>>,
     normalized_action: Option<NormalizedAction>,
     #[serde(flatten)]
     protocol: Option<ProtocolSettingDomain<'a, IPv4Options>>,
@@ -126,13 +151,14 @@ impl<'a> ACLRule<'a, ActionType> {
     }
 }
 
+impl<'a> IntoPy<PyObject> for ACLRule<'a, ActionType> {
+    fn into_py(self, py: Python) -> PyObject {
+        let dict = PyDict::new(py);
+        dict.set_item::<PyObject, PyObject>("action_modifiers".into_py(py), self.action_modifiers.into_py(py)).expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("action".into_py(py), self.action.into_py(py)).expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("normalized_action".into_py(py), self.normalized_action.into_py(py)).expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("protocol".into_py(py), self.protocol.into_py(py)).expect("Failed to set_item on dict");
+        dict.into_py(py)
+    }
+}
 
-// static TCP_FLAGS_ALL: [&str; 6] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH"];
-
-
-// pub struct TcpFlagBuilder{
-//     cache: Vec<&str>
-// }
-// impl TcpFlagBuilder {
-    
-// }

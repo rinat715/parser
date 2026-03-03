@@ -119,3 +119,42 @@ values = [300]
 [[test_6.expected.TCPUDPOptions.DestinationPorts]]
 operator = "eq"
 values = [22]
+
+[test_7]
+input = "-A INPUT -j SETCLASS -p udp --ttl-gt 200 -f --dscp 0x20 --length 300 --any-opt"
+remaining = ""
+
+[test_7.expected]
+ActionModifiers = []
+NormalizedAction = "pass"
+
+[[test_7.expected.Action]]
+action = "PASS"
+option = ""
+
+[test_7.expected.Protocol]
+operator = "eq"
+values = ["udp"]
+
+[test_7.expected.IPv4Options]
+precedence = []
+
+[[test_7.expected.IPv4Options.fragments]]
+operator = "gt"
+values = [1]
+
+[[test_7.expected.IPv4Options.dscp]]
+operator = "eq"
+values = [32]
+
+[[test_7.expected.IPv4Options.ip_protocol_options]]
+operator = "eq"
+values = [0]
+
+[[test_7.expected.IPv4Options.ttl]]
+operator = "gt"
+values = [200]
+
+[[test_7.expected.IPv4Options.packet_length]]
+operator = "eq"
+values = [300]

@@ -2,8 +2,45 @@ kind: pipeline
 name: default
 
 steps:
-- name: test
-  image: rust:1.80
-  commands:
-  - cargo build --verbose --all
-  - cargo test --verbose --all
+  - name: restore-cache-with-filesystem
+    image: meltwater/drone-cache
+    settings:
+      backend: "filesystem"
+      restore: true
+      cache_key: "volume"
+      archive_format: "gzip"
+      mount:
+        - 'registry'
+    volumes:
+    - name: cache
+      path: /tmp/cache
+
+  - name: test
+    image: 192.168.1.156:3000/azat715/rust_python3_6:0.1
+    commands:
+    - cargo build --verbose --all
+    - cargo test --verbose --all
+    environment:
+      CARGO_HOME: registry
+
+  - name: rebuild-cache-with-filesystem
+    image: meltwater/drone-cache
+    settings:
+      backend: "filesystem"
+      rebuild: true
+      cache_key: "volume"
+      archive_format: "gzip"
+      mount:
+        - 'registry'
+    volumes:
+    - name: cache
+      path: /tmp/cache
+
+volumes:
+  - name: cache
+    host:
+      path: /var/lib/cache
+
+
+image_pull_secrets:
+- gitea
