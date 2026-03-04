@@ -12,7 +12,7 @@ use std::cmp;
 use std::str::FromStr;
 
 use c::{pair_sep_colon, preceded_tag, separated_by_comma};
-use common as c;
+use crate::common as c;
 use d::BuildOperatorType;
 use domain::Builder;
 use domain::{self as d};

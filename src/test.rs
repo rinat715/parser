@@ -14,7 +14,7 @@ fn test_any(a: Vec<u16>, b: Vec<u16>) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use common::ip_parser;
+    use crate::common::ip_parser;
     use domain::ip::IPAddress;
     use super::*;
 
