@@ -1,8 +1,8 @@
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{u16, space1},
-    combinator::{map},
+    character::complete::{space1, u16},
+    combinator::map,
     error::ParseError,
     multi::separated_list1,
     sequence::{pair, preceded, separated_pair},
@@ -12,8 +12,8 @@ use nom::{
 mod ip;
 pub use ip::*;
 
-use domain as d;
 use d::BuildOperatorType;
+use domain as d;
 
 // парсеры нельзя клонировать поэтому такая
 pub fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
@@ -64,70 +64,96 @@ pub fn pair_sep_space(s: &str) -> IResult<&str, d::SingleOrPair<u16>> {
     single_or_pair_u16(" ").parse(s)
 }
 
-fn single_int_operator_(operator: d::OperatorType, value: u16) -> d::IntOperator {
-    d::IntOperator::new(operator.single(), vec![value])
-}
-
-pub fn single_int_operator<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
+pub fn single_int_operator<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, d::IntOperator, E>
 where
-    F: Parser<&'a str, (d::OperatorType, u16), E>,
+    T: BuildOperatorType,
+    F: Parser<&'a str, (T, u16), E>,
 {
-    map(f, |pair| single_int_operator_(pair.0, pair.1))
-}
-
-fn dscp_build(value: u16) -> d::IntOperator {
-    d::IntOperator::new(d::OperatorType::EQ, vec![value])
+    map(f, |(operator, value)| {
+        d::IntOperator::new(operator.single(), vec![value])
+    })
 }
 
 pub fn dscp<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
 where
     F: Parser<&'a str, u16, E>,
 {
-    map(f, |value| dscp_build(value))
+    map(f, |value| {
+        d::IntOperator::new(d::OperatorType::EQ, vec![value])
+    })
 }
 
-pub fn protocol<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::Protocol<'a>, E>
+pub fn protocol<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, d::Protocol<'a>, E>
 where
-    F: Parser<&'a str, (d::OperatorType, d::StringOrU16<'a>), E>,
+    T: BuildOperatorType,
+    F: Parser<&'a str, (T, d::StringOrU16<'a>), E>,
 {
-    map(f, |(operator, value)| d::Protocol::new(operator, value))
+    map(f, |(operator, value)| d::Protocol::new(operator.single(), value))
 }
 
-fn int_operator_<T>(operator: T, value: d::SingleOrPair<u16>) -> d::IntOperator 
-    where
-        T: BuildOperatorType,
-{
-    
-    d::IntOperator::build(operator, value)
-}
-
-fn many_int_operator_<T>(
-    operator: T,
-    values: Vec<d::SingleOrPair<u16>>,
-) -> Vec<d::IntOperator> 
+pub fn many_int_operator<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, Vec<d::IntOperator>, E>
 where
-    T:BuildOperatorType + Clone, 
-{
-    values
-        .into_iter()
-        .map(|i| int_operator_(operator.clone(), i))
-        .collect()
-}
-
-pub fn many_int_operator<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, Vec<d::IntOperator>, E>
-where
-    T:BuildOperatorType + Clone,
+    T: BuildOperatorType + Clone,
     F: Parser<&'a str, (T, Vec<d::SingleOrPair<u16>>), E>,
 {
-    map(f, |pair| many_int_operator_(pair.0, pair.1))
+    map(f, |(operator, values)| {
+        values
+            .into_iter()
+            .map(|i| d::IntOperator::build(operator.clone(), i))
+            .collect()
+    })
 }
 
-pub fn int_operator<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
+pub fn int_operator<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, d::IntOperator, E>
 where
-    T:BuildOperatorType,
+    T: BuildOperatorType,
     F: Parser<&'a str, (T, d::SingleOrPair<u16>), E>,
 {
-    map(f, |pair| int_operator_(pair.0, pair.1))
+    map(f, |(operator, value)| {
+        d::IntOperator::build(operator, value)
+    })
+}
+
+pub static TCP_FLAGS_ALL: [&str; 6] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH"];
+
+fn tcp_flags_<'a>(
+    operator: d::OperatorType,
+    value: (Vec<&'a str>, Vec<&'a str>),
+) -> (d::StringOperator<'a>, d::StringOperator<'a>) {
+    let values: Vec<&str>;
+
+    if operator == d::OperatorType::EQ {
+        values = value
+            .0
+            .into_iter()
+            .filter(|x| !value.1.contains(x))
+            .collect()
+    } else {
+        values = TCP_FLAGS_ALL
+            .into_iter()
+            .filter(|x| !value.0.contains(x))
+            .collect()
+    }
+
+    let first = d::StringOperator::new(d::OperatorType::NEQ, values);
+    let second: domain::StringOperator<'_> = d::StringOperator::new(d::OperatorType::EQ, value.1);
+
+    (first, second)
+}
+
+pub fn tcp_flags<'a, E: ParseError<&'a str>, F>(
+    f: F,
+) -> impl Parser<&'a str, (d::StringOperator<'a>, d::StringOperator<'a>), E>
+where
+    F: Parser<&'a str, (d::OperatorType, (Vec<&'a str>, Vec<&'a str>)), E>,
+{
+    map(f, |(operator, value)| tcp_flags_(operator, value))
 }
 
 #[cfg(test)]

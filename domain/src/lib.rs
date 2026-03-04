@@ -264,10 +264,47 @@ where
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Default)]
-pub struct ACLRule<'a, T> {
-    pub action_modifiers: Option<Vec<ActionSetting<'a, T>>>,
-    pub action: Option<Vec<ActionSetting<'a, T>>>,
-    pub normalized_action: Option<NormalizedAction>,
-    pub line_number: Option<u16>,
+#[derive(Serialize)]
+#[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
+pub struct ACLRule<'a, T1, T2> {
+    action_modifiers: Vec<ActionSetting<'a, T1>>,
+    action: Vec<ActionSetting<'a, T1>>,
+    normalized_action: Option<NormalizedAction>,
+    line_number: Option<u16>,
+    #[serde(flatten)]
+    protocol: Option<ProtocolSetting<'a, T2>>,
+}
+
+
+impl<'a, T1, T2> ACLRule<'a, T1, T2> {
+    pub fn new(
+        action: Vec<ActionSetting<'a, T1>>,
+        action_modifiers: Vec<ActionSetting<'a, T1>>,
+        normalized_action: Option<NormalizedAction>,
+        line_number: Option<u16>,
+        protocol: Option<ProtocolSetting<'a, T2>>,
+    ) -> Self {
+        Self {
+            action,
+            action_modifiers,
+            normalized_action,
+            line_number,
+            protocol,
+        }
+    }
+}
+
+impl<'a, T1, T2> IntoPy<PyObject> for ACLRule<'a, T1, T2> 
+where
+    T1: IntoPy<PyObject>,
+    T2: IntoPy<PyObject>,
+{
+    fn into_py(self, py: Python) -> PyObject {
+        let dict = PyDict::new(py);
+        dict.set_item::<PyObject, PyObject>("action_modifiers".into_py(py), self.action_modifiers.into_py(py)).expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("action".into_py(py), self.action.into_py(py)).expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("normalized_action".into_py(py), self.normalized_action.into_py(py)).expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("protocol".into_py(py), self.protocol.into_py(py)).expect("Failed to set_item on dict");
+        dict.into_py(py)
+    }
 }

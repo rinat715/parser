@@ -41,6 +41,7 @@ pub fn ip_parser(input: &str) -> IResult<&str, d::IP> {
     alt((ip4, ip6)).parse(input)
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

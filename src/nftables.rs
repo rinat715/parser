@@ -22,9 +22,8 @@ use macros::{alt_impl, Mapping};
 
 type ActionType = d::nftables::ActionType;
 type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParseEnum2Error; // TODO нормальное название
+type ACLRule<'a> = d::ACLRule<'a, ActionType, d::IPv4Options>;
+type ProtocolSetting<'a> = d::ProtocolSetting<'a, d::IPv4Options>;
 
 #[cfg(test)]
 mod tests {
@@ -32,18 +31,18 @@ mod tests {
     use tester::tester;
 
     #[tester("acl.toml")]
-    fn test_rule(arg: &str) -> IResult<&str, d::nftables::ACLRule<ActionType>> {
+    fn test_rule<'a>(arg: &'a str) -> IResult<&'a str, ACLRule<'a>> {
         let v = vec!["MY_CHAIN"];
         rule(arg, &v)
     }
 
     #[tester("parser.toml")]
-    fn test_parser(arg: &str) -> IResult<&str, RawACLRule> {
+    fn test_parser<'a>(arg: &'a str) -> IResult<&'a str, RawACLRule<'a>> {
         parser(arg, |_| false)
     }
 
     #[tester("protocol.toml")]
-    fn test_protocol(arg: &str) -> IResult<&str, d::Protocol> {
+    fn test_protocol<'a>(arg: &'a str) -> IResult<&'a str, d::Protocol<'a>> {
         protocol(arg)
     }
 
@@ -308,7 +307,6 @@ fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
 //  IntOperator --sport 500:600 --dport 45
 // ! --ports 50,300:400
 // --ports 50
-
 fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>> {
     move |input: &str| {
         let port = map(pair_sep_colon, |v| vec![v]);
@@ -320,43 +318,16 @@ fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>
     }
 }
 
-static TCP_FLAGS_ALL: [&str; 6] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH"];
-
-fn build_tcp_flags<'a>(
-    operator: d::OperatorType,
-    value: (Vec<&'a str>, Vec<&'a str>),
-) -> (d::StringOperator<'a>, d::StringOperator<'a>) {
-    let values: Vec<&str>;
-
-    if operator == d::OperatorType::EQ {
-        values = value
-            .0
-            .into_iter()
-            .filter(|x| !value.1.contains(x))
-            .collect()
-    } else {
-        values = TCP_FLAGS_ALL
-            .into_iter()
-            .filter(|x| !value.0.contains(x))
-            .collect()
-    }
-
-    let first = d::StringOperator::new(d::OperatorType::NEQ, values);
-    let second: domain::StringOperator<'_> = d::StringOperator::new(d::OperatorType::EQ, value.1);
-
-    (first, second)
-}
-
-fn flag_value(s: &str) -> IResult<&str, Vec<&str>> {
+pub fn flag_value(s: &str) -> IResult<&str, Vec<&str>> {
     let none = value(vec![], tag("NONE"));
 
     let mut all_flags: Vec<&str> = Vec::with_capacity(6);
-    all_flags.extend(TCP_FLAGS_ALL);
+    all_flags.extend(c::TCP_FLAGS_ALL);
 
     let all = value(all_flags, tag("ALL"));
 
     fn item(s: &str) -> IResult<&str, &str> {
-        verify(alpha1, |value| TCP_FLAGS_ALL.contains(value)).parse(s)
+        verify(alpha1, |value| c::TCP_FLAGS_ALL.contains(value)).parse(s)
     }
 
     let single = map(item, |v| vec![v]);
@@ -368,21 +339,19 @@ fn flag_value(s: &str) -> IResult<&str, Vec<&str>> {
 // _____________ 1    // 2
 //  --tcp-flags FIN,SYN,ACK ACK
 // ! --tcp-flags FIN,SYN,ACK ACK
-fn tcp_flags(s: &str) -> IResult<&str, (d::StringOperator, d::StringOperator)> {
-    map(
-        pair(
-            single_operator,
-            preceded_tag(
-                "--tcp-flags",
-                separated_pair(flag_value, space1, flag_value),
-            ),
+fn tcp_flags<'a>(s: &'a str) -> IResult<&'a str, (d::StringOperator<'a>, d::StringOperator<'a>)> {
+    let parser = pair(
+        single_operator,
+        preceded_tag(
+            "--tcp-flags",
+            separated_pair(flag_value, space1, flag_value),
         ),
-        |(operator, value)| build_tcp_flags(operator, value),
-    )
-    .parse(s)
+    );
+
+    c::tcp_flags(parser).parse(s)
 }
 
-fn protocol(s: &str) -> IResult<&str, d::Protocol> {
+fn protocol<'a>(s: &'a str) -> IResult<&'a str, d::Protocol<'a>> {
     let number = verify(u16, |value| *value != 0);
 
     let protocol = alt((
@@ -536,7 +505,6 @@ fn tcp_udp_options<'a>(
     ))
 }
 
-
 #[in_not_null(all)]
 fn ip_v_4options(
     ttl: Option<d::IntOperator>,
@@ -555,21 +523,43 @@ fn ip_v_4options(
     ))
 }
 
+fn protocol_setting<'a>(
+    protocol: d::Protocol<'a>,
+    tcp_udp_options: Option<d::TCPUDPOptions<'a>>,
+    ip_options: Option<d::IPv4Options>,
+) -> d::ProtocolSetting<'a, d::IPv4Options> {
+    d::ProtocolSetting::new(None, protocol, tcp_udp_options, ip_options, None)
+}
+
+fn acl<'a>(
+    action: ActionSetting<'a>,
+    action_modifiers: Vec<ActionSetting<'a>>,
+    normalized_action: Option<d::NormalizedAction>,
+    protocol: ProtocolSetting<'a>,
+) -> ACLRule<'a> {
+    ACLRule::new(
+        vec![action],
+        action_modifiers,
+        normalized_action,
+        None,
+        Some(protocol),
+    )
+}
+
 impl<'a> d::Builder for RawACLRule<'a> {
-    type Result = d::nftables::ACLRule<'a, d::nftables::ActionType>;
+    type Result = ACLRule<'a>;
 
     fn build(self) -> Self::Result {
         let action_modifiers =
             action_modifiers(&self.action, self.log_level, self.action_modifiers);
         let action = action_setting(self.action, self.option);
-
         let normalized_action = action.normalized_action().ok();
 
-        d::nftables::ACLRule::new(
+        acl(
             action,
             action_modifiers,
             normalized_action,
-            d::nftables::ProtocolSetting::new(
+            protocol_setting(
                 self.protocol.unwrap_or(d::Protocol::ip()),
                 tcp_udp_options(
                     self.source_ports,
@@ -582,9 +572,8 @@ impl<'a> d::Builder for RawACLRule<'a> {
                     self.fragment,
                     self.dscp,
                     self.packet_length,
-                    self.ip_protocol_options
+                    self.ip_protocol_options,
                 ),
-                None,
             ),
         )
     }
@@ -660,10 +649,7 @@ where
     .parse(input)
 }
 
-pub fn rule<'a>(
-    input: &'a str,
-    user_chains: &Vec<&'a str>,
-) -> IResult<&'a str, d::nftables::ACLRule<'a, ActionType>> {
+pub fn rule<'a>(input: &'a str, user_chains: &Vec<&'a str>) -> IResult<&'a str, ACLRule<'a>> {
     let (remain, rule) = parser(input, |v| user_chains.contains(&v))?;
 
     Ok((remain, rule.build()))

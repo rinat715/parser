@@ -61,14 +61,12 @@ impl Into<IpAddr> for IP {
 
 pub struct IPAddress_ {
     address: IpNet,
-    wildcard: Option<IpAddr>,
 }
 
 impl IPAddress_ {
     fn new(ip: IpNet) -> Self {
         Self {
             address: ip,
-            wildcard: None,
         }
     }
 }

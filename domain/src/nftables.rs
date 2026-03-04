@@ -1,7 +1,6 @@
-use crate::ProtocolSetting as ProtocolSettingDomain;
-use crate::{ActionSetting, ICMPOptions, IPv4Options, NormalizedAction, Protocol, TCPUDPOptions};
+use crate::NormalizedAction;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString};
+use pyo3::types::PyString;
 use serde_derive::Serialize;
 use std::str::FromStr;
 
@@ -97,68 +96,6 @@ impl IntoPy<PyObject> for ActionType {
             Self::LogIPOptions => PyString::new(py, "log-ip-options").into_py(py),
             Self::LogUID => PyString::new(py, "log-uid").into_py(py),
         }
-    }
-}
-
-#[derive(Serialize)]
-pub struct ProtocolSetting<'a>(ProtocolSettingDomain<'a, IPv4Options>);
-impl<'a> ProtocolSetting<'a> {
-    pub fn new(
-        protocol: Protocol<'a>,
-        tcp_udp_options: Option<TCPUDPOptions<'a>>,
-        ip_options: Option<IPv4Options>,
-        icmp_options: Option<ICMPOptions>,
-    ) -> Self {
-        Self(ProtocolSettingDomain::new(
-            None,
-            protocol,
-            tcp_udp_options,
-            ip_options,
-            icmp_options,
-        ))
-    }
-}
-impl Default for ProtocolSetting<'_> {
-    fn default() -> Self {
-        let protocol = Protocol::ip();
-        Self(ProtocolSettingDomain::new(None, protocol, None, None, None))
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
-pub struct ACLRule<'a, ActionType> {
-    action_modifiers: Vec<ActionSetting<'a, ActionType>>,
-    action: Vec<ActionSetting<'a, ActionType>>,
-    normalized_action: Option<NormalizedAction>,
-    #[serde(flatten)]
-    protocol: Option<ProtocolSettingDomain<'a, IPv4Options>>,
-}
-
-impl<'a> ACLRule<'a, ActionType> {
-    pub fn new(
-        action: ActionSetting<'a, ActionType>,
-        action_modifiers: Vec<ActionSetting<'a, ActionType>>,
-        normalized_action: Option<NormalizedAction>,
-        protocol: ProtocolSetting<'a>,
-    ) -> Self {
-        Self {
-            action: vec![action],
-            normalized_action,
-            action_modifiers,
-            protocol: Some(protocol.0),
-        }
-    }
-}
-
-impl<'a> IntoPy<PyObject> for ACLRule<'a, ActionType> {
-    fn into_py(self, py: Python) -> PyObject {
-        let dict = PyDict::new(py);
-        dict.set_item::<PyObject, PyObject>("action_modifiers".into_py(py), self.action_modifiers.into_py(py)).expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("action".into_py(py), self.action.into_py(py)).expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("normalized_action".into_py(py), self.normalized_action.into_py(py)).expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("protocol".into_py(py), self.protocol.into_py(py)).expect("Failed to set_item on dict");
-        dict.into_py(py)
     }
 }
 
