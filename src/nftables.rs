@@ -11,15 +11,16 @@ use serde_derive::Serialize;
 use std::cmp;
 use std::str::FromStr;
 
-use c::{pair_sep_colon, preceded_tag, separated_by_comma};
-use crate::common as c;
-use d::BuildOperatorType;
-use domain::Builder;
-use domain::{self as d};
+use crate::domain as d;
+use crate::{
+    common::{pair_sep_colon, preceded_tag, separated_by_comma},
+    domain::{nftables::EXCLAMATION, DSCP},
+};
+use d::Builder;
 use macros::in_not_null;
-use macros::BuildOperatorType;
 use macros::{alt_impl, Mapping};
 
+type Operator = d::nftables::OperatorType;
 type ActionType = d::nftables::ActionType;
 type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
 type ACLRule<'a> = d::ACLRule<'a, ActionType, d::IPv4Options>;
@@ -180,35 +181,11 @@ fn unknown_part(input: &str) -> IResult<&str, &str> {
     recognize(pair(opt(alt((tag(" -"), tag(" !")))), until_eof)).parse(input)
 }
 
-#[derive(Serialize, Clone, PartialEq, BuildOperatorType)]
-struct Operator<T>(T);
+fn operator(s: &str) -> IResult<&str, Operator> {
+    let operator_ = value(EXCLAMATION, tag("!"));
+    let parser = opt(terminated(operator_, space1));
 
-impl Default for Operator<bool> {
-    fn default() -> Self {
-        Self(false)
-    }
-}
-
-impl Operator<bool> {
-    fn fragment_operator(&self) -> d::IntOperator {
-        match self.0 {
-            true => d::IntOperator::new(d::OperatorType::MatchAny, vec![0, 1]),
-            false => d::IntOperator::new(d::OperatorType::GT, vec![1]),
-        }
-    }
-}
-
-fn operator(s: &str) -> IResult<&str, Operator<bool>> {
-    let operator_ = value(Operator(true), tag("!"));
-
-    map(opt(terminated(operator_, space1)), |v| {
-        v.unwrap_or_default()
-    })
-    .parse(s)
-}
-
-fn single_operator(s: &str) -> IResult<&str, d::OperatorType> {
-    map(operator, |v| v.single()).parse(s)
+    Operator::parser(parser).parse(s)
 }
 
 // # основной вывод:
@@ -228,7 +205,7 @@ fn ttl(s: &str) -> IResult<&str, d::IntOperator> {
 
     let ttl_parser = separated_pair(preceded(tag("--ttl-"), ttl_operator), space1, u16);
 
-    c::single_int_operator(ttl_parser).parse(s)
+    d::IntOperator::parser(ttl_parser).parse(s)
 }
 
 // -f ! -f
@@ -241,7 +218,7 @@ fn fragment(s: &str) -> IResult<&str, d::IntOperator> {
 }
 
 // --dscp 0x20
-fn dscp(s: &str) -> IResult<&str, d::IntOperator> {
+fn dscp(s: &str) -> IResult<&str, d::DSCP> {
     let tag_ = pair(tag("--dscp"), space1);
     let value = preceded(tag("0x"), hex_digit1);
 
@@ -249,7 +226,7 @@ fn dscp(s: &str) -> IResult<&str, d::IntOperator> {
         u16::from_str_radix(v, 16).unwrap()
     });
 
-    c::dscp(parser).parse(s)
+    d::DSCP::parser(parser).parse(s)
 }
 
 // --length 300
@@ -260,7 +237,7 @@ fn length(s: &str) -> IResult<&str, d::IntOperator> {
     let value = pair(operator, pair_sep_colon);
     let parser = preceded(tag_, value);
 
-    c::int_operator(parser).parse(s)
+    d::IntOperatorBuilder::parser(parser).parse(s)
 }
 
 fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
@@ -268,7 +245,7 @@ fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
     // [!] --ts = 68
     // [!] --ra = 148
     let parser = pair(
-        single_operator,
+        operator,
         alt((
             value(7, tag("--rr")),
             value(68, tag("--ts")),
@@ -277,7 +254,7 @@ fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
     );
 
     alt((
-        c::single_int_operator(parser),
+        d::IntOperatorBuilder::parser_single(parser),
         // --ssrr = eq 137
         // --lsrr = eq 131
         // --no-srr = neq [131, 137]
@@ -314,7 +291,7 @@ fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>
 
         let parser = pair(operator, preceded_tag(arg, alt((port, ports))));
 
-        c::many_int_operator(parser).parse(input)
+        d::IntOperatorBuilder::parser_many(parser).parse(input)
     }
 }
 
@@ -322,12 +299,12 @@ pub fn flag_value(s: &str) -> IResult<&str, Vec<&str>> {
     let none = value(vec![], tag("NONE"));
 
     let mut all_flags: Vec<&str> = Vec::with_capacity(6);
-    all_flags.extend(c::TCP_FLAGS_ALL);
+    all_flags.extend(d::TCP_FLAGS_ALL);
 
     let all = value(all_flags, tag("ALL"));
 
     fn item(s: &str) -> IResult<&str, &str> {
-        verify(alpha1, |value| c::TCP_FLAGS_ALL.contains(value)).parse(s)
+        verify(alpha1, |value| d::TCP_FLAGS_ALL.contains(value)).parse(s)
     }
 
     let single = map(item, |v| vec![v]);
@@ -341,14 +318,14 @@ pub fn flag_value(s: &str) -> IResult<&str, Vec<&str>> {
 // ! --tcp-flags FIN,SYN,ACK ACK
 fn tcp_flags<'a>(s: &'a str) -> IResult<&'a str, (d::StringOperator<'a>, d::StringOperator<'a>)> {
     let parser = pair(
-        single_operator,
+        operator,
         preceded_tag(
             "--tcp-flags",
             separated_pair(flag_value, space1, flag_value),
         ),
     );
 
-    c::tcp_flags(parser).parse(s)
+    d::tcp_flags(parser).parse(s)
 }
 
 fn protocol<'a>(s: &'a str) -> IResult<&'a str, d::Protocol<'a>> {
@@ -360,9 +337,9 @@ fn protocol<'a>(s: &'a str) -> IResult<&'a str, d::Protocol<'a>> {
         map(number, d::StringOrU16::Number),
     ));
 
-    let parser = pair(single_operator, preceded_tag("-p", protocol));
+    let parser = pair(operator, preceded_tag("-p", protocol));
 
-    c::protocol(parser).parse(s)
+    d::Protocol::parser_single(parser).parse(s)
 }
 
 fn ip_options<'a>(s: &'a str) -> IResult<&'a str, ActionSetting<'a>> {
@@ -427,7 +404,7 @@ struct RawACLRule<'a> {
     ttl: Option<d::IntOperator>,
     fragment: Option<d::IntOperator>,
     #[mapping(rename = DSCP)]
-    dscp: Option<d::IntOperator>,
+    dscp: Option<DSCP>,
     packet_length: Option<d::IntOperator>,
     #[serde(skip_serializing_if = "d::is_empty")]
     #[mapping(skip)]
@@ -509,7 +486,7 @@ fn tcp_udp_options<'a>(
 fn ip_v_4options(
     ttl: Option<d::IntOperator>,
     fragment: Option<d::IntOperator>,
-    dscp: Option<d::IntOperator>,
+    dscp: Option<DSCP>,
     packet_length: Option<d::IntOperator>,
     ip_protocol_options: Vec<d::IntOperator>,
 ) -> Option<d::IPv4Options> {
@@ -593,7 +570,7 @@ enum Token<'a> {
     TCPFlags((d::StringOperator<'a>, d::StringOperator<'a>)),
     TTL(d::IntOperator),
     Fragment(d::IntOperator),
-    DSCP(d::IntOperator),
+    DSCP(DSCP),
     PacketLength(d::IntOperator),
     IPProtocolOption(d::IntOperator),
 }

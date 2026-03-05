@@ -8,7 +8,7 @@ use nom::{
     IResult, Parser,
 };
 
-use domain as d;
+use crate::domain as d;
 
 const LONGEST_IPV6_ADDR: &str = "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"; // из std net
 

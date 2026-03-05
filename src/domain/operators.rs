@@ -2,6 +2,11 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 use serde_derive::Serialize;
 
+use nom::{combinator::map, error::ParseError, Parser};
+
+#[derive(Serialize, Clone, PartialEq)]
+pub struct OperatorTypeGeneric<T>(pub T);
+
 pub trait BuildOperatorType {
     fn range(&self) -> OperatorType;
 
@@ -20,27 +25,6 @@ pub enum OperatorType {
     MatchAny,
 }
 
-impl BuildOperatorType for OperatorType {
-    fn range(&self) -> OperatorType {
-        match self {
-            Self::RANGE => Self::RANGE,
-            Self::NotRange => Self::NotRange,
-
-            _ => panic!("Not convert to range"),
-        }
-    }
-
-    fn single(&self) -> OperatorType {
-        match self {
-            Self::EQ => Self::EQ,
-            Self::NEQ => Self::NEQ,
-            Self::GT => Self::GT,
-            Self::LT => Self::LT,
-
-            _ => panic!("Not convert to single"),
-        }
-    }
-}
 impl<'a> IntoPy<PyObject> for OperatorType {
     fn into_py(self, py: Python) -> PyObject {
         match self {
@@ -86,7 +70,19 @@ where
 
 pub type IntOperator = Operator<u16>;
 impl IntOperator {
-    pub fn build<T>(operator: T, value: SingleOrPair<u16>) -> IntOperator
+    pub fn parser<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, IntOperator, E>
+    where
+        F: Parser<&'a str, (OperatorType, u16), E>,
+    {
+        map(f, |(operator, value)| {
+            IntOperator::new(operator, vec![value])
+        })
+    }
+}
+
+pub struct IntOperatorBuilder;
+impl IntOperatorBuilder {
+    fn build<T>(operator: T, value: SingleOrPair<u16>) -> IntOperator
     where
         T: BuildOperatorType,
     {
@@ -94,6 +90,63 @@ impl IntOperator {
             SingleOrPair::Single(v) => IntOperator::new(operator.single(), vec![v]),
             SingleOrPair::Pair(f, s) => IntOperator::new(operator.range(), vec![f, s]),
         }
+    }
+
+    pub fn parser<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, IntOperator, E>
+    where
+        T: BuildOperatorType,
+        F: Parser<&'a str, (T, SingleOrPair<u16>), E>,
+    {
+        map(f, |(operator, value)| {
+            IntOperatorBuilder::build(operator, value)
+        })
+    }
+
+    pub fn parser_many<'a, E: ParseError<&'a str>, F, T>(
+        f: F,
+    ) -> impl Parser<&'a str, Vec<IntOperator>, E>
+    where
+        T: BuildOperatorType + Clone,
+        F: Parser<&'a str, (T, Vec<SingleOrPair<u16>>), E>,
+    {
+        map(f, |(operator, values)| {
+            values
+                .into_iter()
+                .map(|i| IntOperatorBuilder::build(operator.clone(), i))
+                .collect()
+        })
+    }
+
+    pub fn parser_single<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, IntOperator, E>
+    where
+        T: BuildOperatorType,
+        F: Parser<&'a str, (T, u16), E>,
+    {
+        map(f, |(operator, value)| {
+            IntOperator::new(operator.single(), vec![value])
+        })
+    }
+
+}
+
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct DSCP(IntOperator);
+
+impl DSCP {
+    pub fn parser<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, DSCP, E>
+    where
+        F: Parser<&'a str, u16, E>,
+    {
+        map(f, |value| {
+            DSCP(IntOperator::new(OperatorType::EQ, vec![value]))
+        })
+    }
+}
+
+impl IntoPy<PyObject> for DSCP {
+    fn into_py(self, py: Python) -> PyObject {
+        self.0.into_py(py)
     }
 }
 

@@ -16,29 +16,6 @@ use syn::{
     parse_macro_input, Data, DeriveInput, FnArg, LitStr, Pat, Type,
 };
 
-#[proc_macro_derive(BuildOperatorType)]
-pub fn derive(input: TokenStream) -> TokenStream {
-    let DeriveInput { ident, .. } = parse_macro_input!(input);
-    let output = quote! {
-    impl domain::BuildOperatorType for #ident<bool> {
-    fn single(&self) -> d::OperatorType {
-        match self.0 {
-            true => domain::OperatorType::NEQ,  // TODO сделать когда true  EQ
-            false => domain::OperatorType::EQ,
-        }
-    }
-
-    fn range(&self) -> domain::OperatorType {
-        match self.0 {
-            true => domain::OperatorType::NotRange,
-            false => domain::OperatorType::RANGE,
-        }
-    }
-        }
-    };
-    output.into()
-}
-
 fn validator(param_name: &syn::Ident, type_ident: &syn::Ident) -> proc_macro2::TokenStream {
     match type_ident.to_string().as_str() {
         "Option" => quote! {#param_name.is_none()},

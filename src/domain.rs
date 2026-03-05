@@ -2,13 +2,15 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 use serde_derive::Serialize;
 
+use nom::{combinator::map, error::ParseError, Parser};
+
 pub mod operators;
 pub use operators::*;
 
 pub mod ip;
 pub use ip::IP;
-pub mod nftables;
 use macros::ToPyDict;
+pub mod nftables;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseEnumError; // TODO нормальное название
@@ -34,6 +36,26 @@ pub enum Protocol<'a> {
 impl<'a> Protocol<'a> {
     pub fn ip() -> Self {
         Self::String(StringOperator::new(OperatorType::EQ, vec!["ip"]))
+    }
+}
+
+impl<'a> Protocol<'a> {
+    // TODO ??????
+    pub fn new(operator_type: OperatorType, value: StringOrU16<'a>) -> Self {
+        match value {
+            StringOrU16::Number(v) => Self::Number(IntOperator::new(operator_type, vec![v])),
+            StringOrU16::String(v) => Self::String(StringOperator::new(operator_type, vec![v])),
+        }
+    }
+
+    pub fn parser_single<E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, Protocol<'a>, E>
+    where
+        T: BuildOperatorType,
+        F: Parser<&'a str, (T, StringOrU16<'a>), E>,
+    {
+        map(f, |(operator, value)| {
+            Protocol::new(operator.single(), value)
+        })
     }
 }
 
@@ -71,10 +93,47 @@ impl<'a> TCPUDPOptions<'a> {
     }
 }
 
+pub static TCP_FLAGS_ALL: [&str; 6] = ["SYN", "ACK", "FIN", "RST", "URG", "PSH"];
+
+fn tcp_flags_<'a>(
+    operator: OperatorType,
+    value: (Vec<&'a str>, Vec<&'a str>),
+) -> (StringOperator<'a>, StringOperator<'a>) {
+    let values: Vec<&str>;
+
+    if operator == OperatorType::EQ {
+        values = value
+            .0
+            .into_iter()
+            .filter(|x| !value.1.contains(x))
+            .collect()
+    } else {
+        values = TCP_FLAGS_ALL
+            .into_iter()
+            .filter(|x| !value.0.contains(x))
+            .collect()
+    }
+
+    let first = StringOperator::new(OperatorType::NEQ, values);
+    let second: StringOperator<'_> = StringOperator::new(OperatorType::EQ, value.1);
+
+    (first, second)
+}
+
+pub fn tcp_flags<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, (StringOperator<'a>, StringOperator<'a>), E>
+where
+    T: BuildOperatorType,
+    F: Parser<&'a str, (T, (Vec<&'a str>, Vec<&'a str>)), E>,
+{
+    map(f, |(operator, value)| tcp_flags_(operator.single(), value))
+}
+
 #[derive(Serialize, ToPyDict)]
 pub struct IPv4Options {
     fragments: Vec<IntOperator>,
-    dscp: Vec<IntOperator>,
+    dscp: Vec<DSCP>,
     precedence: Vec<IntOperator>,
     ip_protocol_options: Vec<IntOperator>,
     ttl: Vec<IntOperator>,
@@ -84,7 +143,7 @@ pub struct IPv4Options {
 impl IPv4Options {
     pub fn new(
         fragments: Vec<IntOperator>,
-        dscp: Vec<IntOperator>,
+        dscp: Vec<DSCP>,
         precedence: Vec<IntOperator>,
         ip_protocol_options: Vec<IntOperator>,
         ttl: Vec<IntOperator>,
@@ -122,7 +181,7 @@ pub struct ProtocolSetting<'a, T> {
     #[serde(flatten)]
     protocol: Protocol<'a>,
     #[serde(rename(serialize = "TCPUDPOptions", deserialize = "TCPUDPOptions"))]
-    tcp_udp_options: Option<TCPUDPOptions<'a>>, 
+    tcp_udp_options: Option<TCPUDPOptions<'a>>,
     #[serde(rename(serialize = "IPv4Options", deserialize = "IPv4Options"))]
     ip_options: Option<T>,
     icmp_options: Option<ICMPOptions>,
@@ -174,16 +233,6 @@ where
 pub enum StringOrU16<'a> {
     String(&'a str),
     Number(u16),
-}
-
-impl<'a> Protocol<'a> {
-    // TODO ??????
-    pub fn new(operator_type: OperatorType, value: StringOrU16<'a>) -> Self {
-        match value {
-            StringOrU16::Number(v) => Self::Number(IntOperator::new(operator_type, vec![v])),
-            StringOrU16::String(v) => Self::String(StringOperator::new(operator_type, vec![v])),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -275,7 +324,6 @@ pub struct ACLRule<'a, T1, T2> {
     protocol: Option<ProtocolSetting<'a, T2>>,
 }
 
-
 impl<'a, T1, T2> ACLRule<'a, T1, T2> {
     pub fn new(
         action: Vec<ActionSetting<'a, T1>>,
@@ -294,17 +342,27 @@ impl<'a, T1, T2> ACLRule<'a, T1, T2> {
     }
 }
 
-impl<'a, T1, T2> IntoPy<PyObject> for ACLRule<'a, T1, T2> 
+impl<'a, T1, T2> IntoPy<PyObject> for ACLRule<'a, T1, T2>
 where
     T1: IntoPy<PyObject>,
     T2: IntoPy<PyObject>,
 {
     fn into_py(self, py: Python) -> PyObject {
         let dict = PyDict::new(py);
-        dict.set_item::<PyObject, PyObject>("action_modifiers".into_py(py), self.action_modifiers.into_py(py)).expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("action".into_py(py), self.action.into_py(py)).expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("normalized_action".into_py(py), self.normalized_action.into_py(py)).expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("protocol".into_py(py), self.protocol.into_py(py)).expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>(
+            "action_modifiers".into_py(py),
+            self.action_modifiers.into_py(py),
+        )
+        .expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("action".into_py(py), self.action.into_py(py))
+            .expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>(
+            "normalized_action".into_py(py),
+            self.normalized_action.into_py(py),
+        )
+        .expect("Failed to set_item on dict");
+        dict.set_item::<PyObject, PyObject>("protocol".into_py(py), self.protocol.into_py(py))
+            .expect("Failed to set_item on dict");
         dict.into_py(py)
     }
 }

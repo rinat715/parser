@@ -1,6 +1,7 @@
 mod nftables;
 mod test;
 mod common;
+mod domain;
 use pyo3::prelude::*;
 use pyo3::Python;
 use domain::nftables::ActionType;

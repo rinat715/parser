@@ -1,8 +1,10 @@
-use crate::NormalizedAction;
+use crate::domain::{self as d};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use serde_derive::Serialize;
 use std::str::FromStr;
+
+use nom::{combinator::map, error::ParseError, Parser};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConvertError; // TODO нормальное название
@@ -60,18 +62,18 @@ impl FromStr for ActionType {
     }
 }
 
-impl TryInto<NormalizedAction> for ActionType {
-    type Error = crate::ParseEnumError;
+impl TryInto<d::NormalizedAction> for ActionType {
+    type Error = crate::domain::ParseEnumError;
 
-    fn try_into(self) -> Result<NormalizedAction, Self::Error> {
+    fn try_into(self) -> Result<d::NormalizedAction, Self::Error> {
         match self {
-            Self::ACCEPT => Ok(NormalizedAction::PERMIT),
-            Self::DROP | Self::REJECT => Ok(NormalizedAction::DENY),
-            Self::JUMP | Self::GOTO => Ok(NormalizedAction::JUMP),
-            Self::PASS => Ok(NormalizedAction::PASS),
-            Self::RETURN => Ok(NormalizedAction::RETURN),
+            Self::ACCEPT => Ok(d::NormalizedAction::PERMIT),
+            Self::DROP | Self::REJECT => Ok(d::NormalizedAction::DENY),
+            Self::JUMP | Self::GOTO => Ok(d::NormalizedAction::JUMP),
+            Self::PASS => Ok(d::NormalizedAction::PASS),
+            Self::RETURN => Ok(d::NormalizedAction::RETURN),
 
-            _ => Err(crate::ParseEnumError),
+            _ => Err(crate::domain::ParseEnumError),
         }
     }
 }
@@ -99,3 +101,48 @@ impl IntoPy<PyObject> for ActionType {
     }
 }
 
+pub static EXCLAMATION: &str = "!";
+
+pub type OperatorType = d::OperatorTypeGeneric<Option<&'static str>>;
+
+impl Default for OperatorType {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+impl OperatorType {
+    pub fn new(value: Option<&'static str>) -> Self {
+        Self(value)
+    }
+
+    pub fn fragment_operator(&self) -> d::IntOperator {
+        match self.0 {
+            Some(_) => d::IntOperator::new(d::OperatorType::MatchAny, vec![0, 1]),
+            None => d::IntOperator::new(d::OperatorType::GT, vec![1]),
+        }
+    }
+
+    pub fn parser<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, OperatorType, E>
+    where
+        F: Parser<&'a str, Option<&'static str>, E>,
+    {
+        map(f, |value| OperatorType::new(value))
+    }
+}
+
+impl crate::domain::BuildOperatorType for OperatorType {
+    fn single(&self) -> crate::domain::OperatorType {
+        match self.0 {
+            Some(_) => crate::domain::OperatorType::NEQ,
+            None => crate::domain::OperatorType::EQ,
+        }
+    }
+
+    fn range(&self) -> crate::domain::OperatorType {
+        match self.0 {
+            Some(_) => crate::domain::OperatorType::NotRange,
+            None => crate::domain::OperatorType::RANGE,
+        }
+    }
+}
