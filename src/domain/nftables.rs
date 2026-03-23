@@ -4,8 +4,6 @@ use pyo3::types::PyString;
 use serde_derive::Serialize;
 use std::str::FromStr;
 
-use nom::{combinator::map, error::ParseError, Parser};
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConvertError; // TODO нормальное название
 
@@ -121,13 +119,6 @@ impl OperatorType {
             Some(_) => d::IntOperator::new(d::OperatorType::MatchAny, vec![0, 1]),
             None => d::IntOperator::new(d::OperatorType::GT, vec![1]),
         }
-    }
-
-    pub fn parser<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, OperatorType, E>
-    where
-        F: Parser<&'a str, Option<&'static str>, E>,
-    {
-        map(f, |value| OperatorType::new(value))
     }
 }
 

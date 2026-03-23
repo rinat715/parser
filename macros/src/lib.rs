@@ -26,7 +26,7 @@ fn validator(param_name: &syn::Ident, type_ident: &syn::Ident) -> proc_macro2::T
 }
 
 #[proc_macro_attribute]
-pub fn in_not_null(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn is_not_null(attr: TokenStream, item: TokenStream) -> TokenStream {
     let func = syn::parse_macro_input!(item as syn::ItemFn);
     let mut validators: Vec<proc_macro2::TokenStream> = Vec::with_capacity(func.sig.inputs.len());
 
@@ -161,7 +161,7 @@ pub fn mapping(input: TokenStream) -> TokenStream {
 
     let mapping = quote! {
         #[automatically_derived]
-        impl #impl_generics Mapping<#target #impl_generics> for #name #ty_generics {
+        impl #impl_generics crate::domain::Mapping<#target #impl_generics> for #name #ty_generics {
             fn mapping(&mut self, target: #target #ty_generics) {
                 match target {
                     #( #target::#serialize_fields )*
@@ -176,8 +176,7 @@ pub fn mapping(input: TokenStream) -> TokenStream {
     TokenStream::from(mapping)
 }
 
-//
-// https://github.com/wojciech-graj/bin-proto
+
 #[proc_macro_derive(ToPyDict, attributes(to_py_dict))]
 pub fn to_py_dict(input: TokenStream) -> TokenStream {
     let original_struct = parse_macro_input!(input as DeriveInput);

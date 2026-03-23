@@ -52,6 +52,20 @@ action = "DROP"
 operator = "eq"
 values = ["icmp"]
 
+[test_6.expected.source]
+operator = "neq"
+
+[[test_6.expected.source.values]]
+Prefix = 32
+
+[test_6.expected.source.values.Address]
+Address = "10.0.0.4"
+Version = 4
+
+[test_6.expected.source.values.NetworkID]
+Address = "10.0.0.4"
+Version = 4
+
 [test_7]
 input = "-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
 remaining = ""
@@ -59,6 +73,7 @@ remaining = ""
 [test_7.expected]
 name = "INPUT"
 action = "ACCEPT"
+conntrack = "conntrack"
 
 [test_8]
 input = "-A INPUT -m recent --rcheck --seconds 60 --name DEFAULT --rsource -m limit --limit 10/sec -j LOG --log-prefix \"BG \""
@@ -66,7 +81,7 @@ remaining = ""
 
 [test_8.expected]
 name = "INPUT"
-action = "LOG"
+log = "LOG"
 
 [[test_8.expected.action_modifiers]]
 action = "log-prefix"
@@ -88,6 +103,20 @@ values = ["RST", "URG", "PSH"]
 operator = "eq"
 values = ["ACK"]
 
+[test_9.expected.source]
+operator = "eq"
+
+[[test_9.expected.source.values]]
+Prefix = 32
+
+[test_9.expected.source.values.Address]
+Address = "10.0.0.12"
+Version = 4
+
+[test_9.expected.source.values.NetworkID]
+Address = "10.0.0.12"
+Version = 4
+
 [test_10]
 input = "-A OUTPUT --match-set BlockedHosts dst,dst -j DROP"
 remaining = ""
@@ -107,6 +136,20 @@ action = "RETURN"
 [[test_11.expected.action_modifiers]]
 action = "log-prefix"
 option = '"BG " 123"'
+
+[test_11.expected.source]
+operator = "eq"
+
+[[test_11.expected.source.values]]
+Prefix = 32
+
+[test_11.expected.source.values.Address]
+Address = "10.134.0.68"
+Version = 4
+
+[test_11.expected.source.values.NetworkID]
+Address = "10.134.0.68"
+Version = 4
 
 [test_12]
 input = "-A INPUT -j REJECT --reject-with tcp-reset"
@@ -161,3 +204,43 @@ values = ["udp"]
 [[test_15.expected.ports]]
 operator = "neq"
 values = [25]
+
+[test_16]
+input = "-s 10.10.140.0/24 -m conntrack --ctorigsrc 10.10.140.3 --ctorigdst 10.0.0.0/8 --ctorigdstport 80:85 -j ACCEPT"
+remaining = ""
+
+[test_16.expected]
+action = "ACCEPT"
+conntrack = "conntrack"
+
+[test_16.expected.source]
+operator = "eq"
+
+[[test_16.expected.source.values]]
+Prefix = 24
+
+[test_16.expected.source.values.Address]
+Address = "10.10.140.0"
+Version = 4
+
+[test_16.expected.source.values.NetworkID]
+Address = "10.10.140.0"
+Version = 4
+
+[test_16.expected.ctorigdst]
+operator = "eq"
+
+[[test_16.expected.ctorigdst.values]]
+Prefix = 8
+
+[test_16.expected.ctorigdst.values.Address]
+Address = "10.0.0.0"
+Version = 4
+
+[test_16.expected.ctorigdst.values.NetworkID]
+Address = "10.0.0.0"
+Version = 4
+
+[[test_16.expected.ctorigdstport]]
+operator = "eq"
+values = [80]

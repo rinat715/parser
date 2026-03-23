@@ -11,20 +11,23 @@ use serde_derive::Serialize;
 use std::cmp;
 use std::str::FromStr;
 
-use crate::domain as d;
-use crate::{
-    common::{pair_sep_colon, preceded_tag, separated_by_comma},
-    domain::{nftables::EXCLAMATION, DSCP},
-};
-use d::Builder;
-use macros::in_not_null;
-use macros::{alt_impl, Mapping};
+use crate::domain::{self as d, BuildOperatorType};
+use crate::parser::{self as p};
+use crate::parser::{preceded_tag_space, separated_by_comma, SingleOrPairU16};
+use d::{Builder, Mapping};
+use macros::{alt_impl, is_not_null, Mapping};
 
 type Operator = d::nftables::OperatorType;
 type ActionType = d::nftables::ActionType;
 type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
-type ACLRule<'a> = d::ACLRule<'a, ActionType, d::IPv4Options>;
-type ProtocolSetting<'a> = d::ProtocolSetting<'a, d::IPv4Options>;
+type ACLRule<'a> = d::ACLRule<'a, ActionType>;
+type ACLRuleBulder<'a> = d::ACLRuleBulder<'a, ActionType>;
+
+impl<'a> ACLRule<'a> {
+    pub fn builder() -> ACLRuleBulder<'a> {
+        ACLRuleBulder::new()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -49,9 +52,9 @@ mod tests {
 
     #[test]
     fn test_flag() {
-        assert_eq!(flag_value("SYN").unwrap(), ("", vec!["SYN"]));
+        assert_eq!(TSPFlags::value_("SYN").unwrap(), ("", vec!["SYN"]));
         assert_eq!(
-            flag_value("FIN,SYN,ACK").unwrap(),
+            TSPFlags::value_("FIN,SYN,ACK").unwrap(),
             ("", vec!["FIN", "SYN", "ACK"])
         )
     }
@@ -72,6 +75,26 @@ mod tests {
         assert_eq!("", rem);
         assert_eq!(
             "operator = \"eq\"\nvalues = [300]\n",
+            toml::to_string(&res).unwrap()
+        )
+    }
+
+    #[test]
+    fn test_action_setting() {
+        let res = action_setting(
+            Some(d::nftables::ActionType::REJECT),
+            Some(OptionType::Value("tcp-reset")),
+        );
+        assert!(res.is_some());
+        assert_eq!(
+            "action = \"REJECT\"\noption = \"tcp-reset\"\n",
+            toml::to_string(&res).unwrap()
+        );
+
+        let res = action_setting(None, Some(OptionType::Goto("TEST")));
+        assert!(res.is_some());
+        assert_eq!(
+            "action = \"GOTO\"\noption = \"TEST\"\n",
             toml::to_string(&res).unwrap()
         )
     }
@@ -167,12 +190,13 @@ fn until_eof(s: &str) -> IResult<&str, &str> {
     }
 }
 
-fn name(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded(pair(tag(arg), space1), until_eof).parse(input)
+// TODO если name не распарсился то парсинг строки должен валится с ошибкой
+fn name(s: &str) -> IResult<&str, &str> {
+    tag_value("-A").parse(s)
 }
 
 fn tag_value(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
-    move |input: &str| preceded_tag(arg, until_eof).parse(input)
+    move |input: &str| preceded_tag_space(arg, until_eof).parse(input)
 }
 
 fn unknown_part(input: &str) -> IResult<&str, &str> {
@@ -182,14 +206,16 @@ fn unknown_part(input: &str) -> IResult<&str, &str> {
 }
 
 fn operator(s: &str) -> IResult<&str, Operator> {
-    let operator_ = value(EXCLAMATION, tag("!"));
+    let operator_ = value(d::nftables::EXCLAMATION, tag("!"));
     let parser = opt(terminated(operator_, space1));
 
-    Operator::parser(parser).parse(s)
+    map(parser, |value| Operator::new(value)).parse(s)
 }
 
+// https://ipset.netfilter.org/iptables-extensions.man.html
+
 // # основной вывод:
-// --ttl-gt 200
+// --ttl-gt 200s
 // еще пример
 // --ttl-eq 100
 //--ttl-gt 200
@@ -205,7 +231,7 @@ fn ttl(s: &str) -> IResult<&str, d::IntOperator> {
 
     let ttl_parser = separated_pair(preceded(tag("--ttl-"), ttl_operator), space1, u16);
 
-    d::IntOperator::parser(ttl_parser).parse(s)
+    p::IntOperator::parser1(ttl_parser).parse(s)
 }
 
 // -f ! -f
@@ -218,26 +244,22 @@ fn fragment(s: &str) -> IResult<&str, d::IntOperator> {
 }
 
 // --dscp 0x20
-fn dscp(s: &str) -> IResult<&str, d::DSCP> {
-    let tag_ = pair(tag("--dscp"), space1);
-    let value = preceded(tag("0x"), hex_digit1);
+fn dscp(s: &str) -> IResult<&str, d::IntOperator> {
+    let parser = map(
+        preceded_tag_space("--dscp", preceded(tag("0x"), hex_digit1)),
+        |v| u16::from_str_radix(v, 16).unwrap(),
+    );
 
-    let parser = map(preceded(tag_, value), |v| {
-        u16::from_str_radix(v, 16).unwrap()
-    });
-
-    d::DSCP::parser(parser).parse(s)
+    p::dscp(parser).parse(s)
 }
 
 // --length 300
 // --length 300:301
 // --length !300:301
 fn length(s: &str) -> IResult<&str, d::IntOperator> {
-    let tag_ = pair(tag("--length"), space1);
-    let value = pair(operator, pair_sep_colon);
-    let parser = preceded(tag_, value);
+    let value = pair(operator, SingleOrPairU16::sep_colon);
 
-    d::IntOperatorBuilder::parser(parser).parse(s)
+    p::IntOperator::parser(preceded_tag_space("--length", value)).parse(s)
 }
 
 fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
@@ -245,7 +267,7 @@ fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
     // [!] --ts = 68
     // [!] --ra = 148
     let parser = pair(
-        operator,
+        map(operator, |v| v.single()),
         alt((
             value(7, tag("--rr")),
             value(68, tag("--ts")),
@@ -253,79 +275,118 @@ fn ip_protocol_options(s: &str) -> IResult<&str, d::IntOperator> {
         )),
     );
 
+    let eq_builder = d::IntOperatorBuilder::new(d::OperatorType::EQ);
+
     alt((
-        d::IntOperatorBuilder::parser_single(parser),
+        p::IntOperator::parser1(parser),
         // --ssrr = eq 137
         // --lsrr = eq 131
         // --no-srr = neq [131, 137]
         //--any-opt  = eq 0
         alt((
+            value(eq_builder.from_value(137), tag("--ssrr")),
+            value(eq_builder.from_value(131), tag("--lsrr")),
             value(
-                d::IntOperator::new(d::OperatorType::EQ, vec![137]),
-                tag("--ssrr"),
-            ),
-            value(
-                d::IntOperator::new(d::OperatorType::EQ, vec![131]),
-                tag("--lsrr"),
-            ),
-            value(
-                d::IntOperator::new(d::OperatorType::NEQ, vec![131, 137]),
+                d::IntOperatorBuilder::new(d::OperatorType::NEQ).from_list(vec![131, 137]),
                 tag("--no-srr"),
             ),
-            value(
-                d::IntOperator::new(d::OperatorType::EQ, vec![0]),
-                tag("--any-opt"),
-            ),
+            value(eq_builder.from_value(0), tag("--any-opt")),
         )),
     ))
     .parse(s)
 }
 
-//  IntOperator --sport 500:600 --dport 45
+//  --sport 500:600 --dport 45
 // ! --ports 50,300:400
 // --ports 50
 fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::IntOperator>> {
     move |input: &str| {
-        let port = map(pair_sep_colon, |v| vec![v]);
-        let ports = separated_by_comma(pair_sep_colon);
+        let port = map(SingleOrPairU16::sep_colon, |v| vec![v]);
+        let ports = separated_by_comma(SingleOrPairU16::sep_colon);
 
-        let parser = pair(operator, preceded_tag(arg, alt((port, ports))));
-
-        d::IntOperatorBuilder::parser_many(parser).parse(input)
+        p::IntOperator::parser_many(pair(operator, preceded_tag_space(arg, alt((port, ports)))))
+            .parse(input)
     }
 }
 
-pub fn flag_value(s: &str) -> IResult<&str, Vec<&str>> {
-    let none = value(vec![], tag("NONE"));
+// -m conntrack
+// -m iprange
+fn module(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |input: &str| preceded_tag_space("-m", tag(arg)).parse(input)
+}
 
-    let mut all_flags: Vec<&str> = Vec::with_capacity(6);
-    all_flags.extend(d::TCP_FLAGS_ALL);
+//  ! -s 192.168.0.1/32
+//  -A OUTPUT -s 192.168.0.1/32 -d 100.100.100.0/24 p icmp -m iprange --srcrange 192.168.0.2-192.168.0.100 ! --dstrange 100.100.100.10-100.100.100.200
+// -m conntrack --ctorigsrc 10.10.140.3 --ctorigdst 10.0.0.0/8 ! --ctorigdstport 443
+fn ip4_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IPOperator> {
+    move |input: &str| {
+        map(
+            pair(
+                map(operator, |v| v.single()),
+                preceded_tag_space(arg, p::ip4_adresss),
+            ),
+            |(operator, ip)| d::IPOperator::new(operator, vec![ip]),
+        )
+        .parse(input)
+    }
+}
 
-    let all = value(all_flags, tag("ALL"));
+// --srcrange 192.168.0.2-192.168.0.100 ! --dstrange 100.100.100.10-100.100.100.200
+fn ip4_range_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IPOperator> {
+    move |input: &str| {
+        map(
+            pair(
+                map(operator, |v| v.range()),
+                preceded_tag_space(arg, separated_pair(p::ip4, tag("-"), p::ip4)),
+            ),
+            |(operator, (f, s))| {
+                d::IPOperator::new(
+                    operator,
+                    vec![
+                        d::IPAddress::new_assert(f, 32),
+                        d::IPAddress::new_assert(s, 32),
+                    ],
+                )
+            },
+        )
+        .parse(input)
+    }
+}
 
-    fn item(s: &str) -> IResult<&str, &str> {
+// This matches on a given arbitrary range of IPv4 addresses
+// [!]--src-range ip-ip
+// Match source IP in the specified range.
+// [!]--dst-range ip-ip
+// Match destination IP in the specified range.
+
+pub struct TSPFlags;
+impl TSPFlags {
+    fn item_(s: &str) -> IResult<&str, &str> {
         verify(alpha1, |value| d::TCP_FLAGS_ALL.contains(value)).parse(s)
     }
 
-    let single = map(item, |v| vec![v]);
-    let pair = separated_by_comma(item);
+    fn value_(s: &str) -> IResult<&str, Vec<&str>> {
+        alt((
+            value(vec![], tag("NONE")),
+            value(Vec::from(d::TCP_FLAGS_ALL), tag("ALL")),
+            separated_by_comma(Self::item_),
+            map(Self::item_, |v| vec![v]),
+        ))
+        .parse(s)
+    }
 
-    alt((none, all, pair, single)).parse(s)
-}
-
-// _____________ 1    // 2
-//  --tcp-flags FIN,SYN,ACK ACK
-// ! --tcp-flags FIN,SYN,ACK ACK
-fn tcp_flags<'a>(s: &'a str) -> IResult<&'a str, (d::StringOperator<'a>, d::StringOperator<'a>)> {
-    let parser = pair(
-        operator,
-        preceded_tag(
-            "--tcp-flags",
-            separated_pair(flag_value, space1, flag_value),
-        ),
-    );
-
-    d::tcp_flags(parser).parse(s)
+    //  --tcp-flags FIN,SYN,ACK ACK
+    // ! --tcp-flags FIN,SYN,ACK ACK
+    fn parser<'a>(s: &'a str) -> IResult<&'a str, (d::StringOperator<'a>, d::StringOperator<'a>)> {
+        p::tcp_flags(pair(
+            operator,
+            preceded_tag_space(
+                "--tcp-flags",
+                separated_pair(Self::value_, space1, Self::value_),
+            ),
+        ))
+        .parse(s)
+    }
 }
 
 fn protocol<'a>(s: &'a str) -> IResult<&'a str, d::Protocol<'a>> {
@@ -337,9 +398,7 @@ fn protocol<'a>(s: &'a str) -> IResult<&'a str, d::Protocol<'a>> {
         map(number, d::StringOrU16::Number),
     ));
 
-    let parser = pair(operator, preceded_tag("-p", protocol));
-
-    d::Protocol::parser_single(parser).parse(s)
+    p::protocol(pair(operator, preceded_tag_space("-p", protocol))).parse(s)
 }
 
 fn ip_options<'a>(s: &'a str) -> IResult<&'a str, ActionSetting<'a>> {
@@ -349,10 +408,7 @@ fn ip_options<'a>(s: &'a str) -> IResult<&'a str, ActionSetting<'a>> {
         value(ActionType::LogIPOptions, tag("--log-ip-options")),
     ));
 
-    let value_parser = alt((
-        value(ActionType::LogLevel, tag("--log-level")),
-        value(ActionType::LogPrefix, tag("--log-prefix")),
-    ));
+    let value_parser = value(ActionType::LogPrefix, tag("--log-prefix"));
 
     alt((
         map(tag_parser, |v| d::ActionSetting::new(v, "")),
@@ -364,15 +420,43 @@ fn ip_options<'a>(s: &'a str) -> IResult<&'a str, ActionSetting<'a>> {
     .parse(s)
 }
 
+fn log_level<'a>(s: &'a str) -> IResult<&'a str, ActionSetting<'a>> {
+    let value_parser = value(ActionType::LogLevel, tag("--log-level"));
+
+    map(
+        separated_pair(value_parser, space1, until_eof),
+        |(action, option)| ActionSetting::new(action, option),
+    )
+    .parse(s)
+}
+
+#[is_not_null(all)]
+fn action_setting<'a>(
+    action: Option<ActionType>,
+    option: Option<OptionType<'a>>,
+) -> Option<ActionSetting<'a>> {
+    match (action, option) {
+        (Some(action), Some(option)) => {
+            if let OptionType::Value(v) = option {
+                return Some(ActionSetting::new(action, v));
+            }
+        }
+        (Some(action), None) => return Some(ActionSetting::new(action, Default::default())),
+        (None, Some(option)) => match option {
+            OptionType::Goto(v) => return Some(ActionSetting::new(ActionType::GOTO, v)),
+            OptionType::Jump(v) => return Some(ActionSetting::new(ActionType::JUMP, v)),
+            OptionType::Value(_) => (),
+        },
+        (None, None) => (),
+    }
+    return None;
+}
+
 #[derive(Serialize)]
 enum OptionType<'a> {
     Goto(&'a str),
     Jump(&'a str),
     Value(&'a str),
-}
-
-trait Mapping<T> {
-    fn mapping(&mut self, target: T);
 }
 
 // представление правила в плоской структуре
@@ -385,8 +469,6 @@ struct RawACLRule<'a> {
     #[serde(skip_serializing_if = "d::is_empty")]
     #[mapping(skip)]
     action_modifiers: Vec<ActionSetting<'a>>,
-    #[mapping(skip)]
-    log_level: Option<ActionSetting<'a>>,
     name: Option<&'a str>,
     #[serde(flatten)]
     protocol: Option<d::Protocol<'a>>,
@@ -400,25 +482,37 @@ struct RawACLRule<'a> {
     tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
     action: Option<ActionType>,
     option: Option<OptionType<'a>>,
+    log: Option<ActionType>,
+    log_level: Option<d::ActionSetting<'a, ActionType>>,
     #[mapping(rename = TTL)]
     ttl: Option<d::IntOperator>,
     fragment: Option<d::IntOperator>,
     #[mapping(rename = DSCP)]
-    dscp: Option<DSCP>,
+    dscp: Option<d::IntOperator>,
     packet_length: Option<d::IntOperator>,
     #[serde(skip_serializing_if = "d::is_empty")]
     #[mapping(skip)]
     ip_protocol_options: Vec<d::IntOperator>,
+    source: Option<d::IPOperator>,
+    destination: Option<d::IPOperator>,
+    #[mapping(rename = IPrange)]
+    iprange: Option<&'a str>,
+    src_range: Option<d::IPOperator>,
+    dst_range: Option<d::IPOperator>,
+    conntrack: Option<&'a str>,
+    ctorigsrc: Option<d::IPOperator>,
+    ctorigdst: Option<d::IPOperator>,
+    #[serde(skip_serializing_if = "d::is_empty")]
+    ctorigdstport: Vec<d::IntOperator>,
+    #[serde(skip_serializing_if = "d::is_empty")]
+    ctorigsrcport: Vec<d::IntOperator>,
 }
 
 impl<'a> RawACLRule<'a> {
     fn action_modifier(&mut self, v: d::ActionSetting<'a, ActionType>) {
-        if v.is_type(ActionType::LogLevel) {
-            self.log_level = Some(v)
-        } else {
-            self.action_modifiers.push(v)
-        }
+        self.action_modifiers.push(v)
     }
+
     fn ip_protocol_option(&mut self, v: d::IntOperator) {
         self.ip_protocol_options.push(v)
     }
@@ -428,136 +522,74 @@ impl<'a> RawACLRule<'a> {
     }
 }
 
-fn action_setting<'a>(
-    action: Option<ActionType>,
-    option: Option<OptionType<'a>>,
-) -> ActionSetting<'a> {
-    match (action, option) {
-        (Some(action), Some(option)) => {
-            if let OptionType::Value(v) = option {
-                return ActionSetting::new(action, v);
-            }
-        }
-        (Some(action), None) => return ActionSetting::new(action, Default::default()),
-        (None, Some(option)) => match option {
-            OptionType::Goto(v) => return ActionSetting::new(ActionType::GOTO, v),
-            OptionType::Jump(v) => return ActionSetting::new(ActionType::JUMP, v),
-            OptionType::Value(_) => (),
-        },
-        (None, None) => (),
-    }
-    return ActionSetting::default();
-}
-
-fn action_modifiers<'a>(
-    action: &Option<ActionType>,
-    log_level: Option<ActionSetting<'a>>,
-    action_modifiers: Vec<ActionSetting<'a>>,
-) -> Vec<ActionSetting<'a>> {
-    let first = match (action, log_level) {
-        (Some(ActionType::LOG), Some(v)) => v,
-        (Some(ActionType::LOG), None) => d::ActionSetting::new(ActionType::LogLevel, "warning"),
-        _ => return vec![],
-    };
-    let mut result = Vec::with_capacity(action_modifiers.len() + 1);
-    result.push(first);
-    result.extend(action_modifiers);
-    result
-}
-
-#[in_not_null(all)]
-fn tcp_udp_options<'a>(
-    sports: Vec<d::IntOperator>,
-    dports: Vec<d::IntOperator>,
-    ports: Vec<d::IntOperator>,
-    tcp_flags: Option<(d::StringOperator<'a>, d::StringOperator<'a>)>,
-) -> Option<d::TCPUDPOptions<'a>> {
-    Some(d::TCPUDPOptions::new(
-        sports
-            .into_iter()
-            .chain(ports.clone().into_iter())
-            .collect(),
-        dports.into_iter().chain(ports.into_iter()).collect(),
-        tcp_flags.map_or(vec![], |v| vec![v.0, v.1]),
-    ))
-}
-
-#[in_not_null(all)]
-fn ip_v_4options(
-    ttl: Option<d::IntOperator>,
-    fragment: Option<d::IntOperator>,
-    dscp: Option<DSCP>,
-    packet_length: Option<d::IntOperator>,
-    ip_protocol_options: Vec<d::IntOperator>,
-) -> Option<d::IPv4Options> {
-    Some(d::IPv4Options::new(
-        fragment.map_or(vec![], |v| vec![v]),
-        dscp.map_or(vec![], |v| vec![v]),
-        vec![],
-        ip_protocol_options,
-        ttl.map_or(vec![], |v| vec![v]),
-        packet_length.map_or(vec![], |v| vec![v]),
-    ))
-}
-
-fn protocol_setting<'a>(
-    protocol: d::Protocol<'a>,
-    tcp_udp_options: Option<d::TCPUDPOptions<'a>>,
-    ip_options: Option<d::IPv4Options>,
-) -> d::ProtocolSetting<'a, d::IPv4Options> {
-    d::ProtocolSetting::new(None, protocol, tcp_udp_options, ip_options, None)
-}
-
-fn acl<'a>(
-    action: ActionSetting<'a>,
-    action_modifiers: Vec<ActionSetting<'a>>,
-    normalized_action: Option<d::NormalizedAction>,
-    protocol: ProtocolSetting<'a>,
-) -> ACLRule<'a> {
-    ACLRule::new(
-        vec![action],
-        action_modifiers,
-        normalized_action,
-        None,
-        Some(protocol),
-    )
-}
-
 impl<'a> d::Builder for RawACLRule<'a> {
     type Result = ACLRule<'a>;
 
     fn build(self) -> Self::Result {
-        let action_modifiers =
-            action_modifiers(&self.action, self.log_level, self.action_modifiers);
-        let action = action_setting(self.action, self.option);
-        let normalized_action = action.normalized_action().ok();
+        let mut protocol_setting_bulder = d::ProtocolSetting::builder(); // мутабельное значение
 
-        acl(
-            action,
-            action_modifiers,
-            normalized_action,
-            protocol_setting(
-                self.protocol.unwrap_or(d::Protocol::ip()),
-                tcp_udp_options(
-                    self.source_ports,
-                    self.destination_ports,
-                    self.ports,
-                    self.tcp_flags,
-                ),
-                ip_v_4options(
-                    self.ttl,
-                    self.fragment,
-                    self.dscp,
-                    self.packet_length,
-                    self.ip_protocol_options,
-                ),
+        let protocol_setting = protocol_setting_bulder // мутабельная ссылка
+            .set_protocol(self.protocol)
+            .extend_source_ports(self.source_ports)
+            .extend_source_ports(self.ports.clone())
+            .extend_destination_ports(self.destination_ports)
+            .extend_destination_ports(self.ports)
+            .add_fragment(self.fragment)
+            .add_dscp(self.dscp)
+            .add_packet_length(self.packet_length)
+            .extend_ip_protocol_options(self.ip_protocol_options)
+            .set_flags(self.tcp_flags);
+
+        self.conntrack.is_some().then(|| {
+            protocol_setting // борроу в замыкание
+                .extend_source_ports(self.ctorigsrcport)
+                .extend_destination_ports(self.ctorigdstport);
+        });
+
+        protocol_setting.add_ttl(self.ttl); // еще доступно
+
+        let mut acl_rule_builder = ACLRule::builder();
+
+        let acl_rule = acl_rule_builder.add_action(action_setting(self.action, self.option));
+
+        self.log.is_some().then(|| {
+            acl_rule
+                .add_action(action_setting(self.log, None))
+                .add_action_modifier(self.log_level.or(Some(ActionSetting::new(
+                    d::nftables::ActionType::LogLevel,
+                    "warning",
+                ))))
+        });
+
+        acl_rule.extend_action_modifiers(self.action_modifiers);
+
+        acl_rule_builder.build(
+            ACLRule::new(
+                vec![ActionSetting::new(d::nftables::ActionType::PASS, "")],
+                vec![],
+                None,
+                None,
+                Some(d::ProtocolSetting::new(
+                    None,
+                    Some(d::Protocol::ip()),
+                    None,
+                    None,
+                    None,
+                )),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
             ),
+            protocol_setting_bulder,
         )
     }
 }
 
 enum Token<'a> {
     Action(ActionType),
+    Log(ActionType),
+    LogLevel(d::ActionSetting<'a, ActionType>),
     ActionModifier(d::ActionSetting<'a, ActionType>),
     DestinationPorts(Vec<d::IntOperator>),
     Error(&'a str),
@@ -570,24 +602,22 @@ enum Token<'a> {
     TCPFlags((d::StringOperator<'a>, d::StringOperator<'a>)),
     TTL(d::IntOperator),
     Fragment(d::IntOperator),
-    DSCP(DSCP),
+    DSCP(d::IntOperator),
     PacketLength(d::IntOperator),
     IPProtocolOption(d::IntOperator),
+    Source(d::IPOperator),
+    Destination(d::IPOperator),
+    IPrange(&'a str),
+    SrcRange(d::IPOperator),
+    DstRange(d::IPOperator),
+    Conntrack(&'a str),
+    Ctorigsrc(d::IPOperator),
+    Ctorigdst(d::IPOperator),
+    Ctorigdstport(Vec<d::IntOperator>),
+    Ctorigsrcport(Vec<d::IntOperator>),
 }
 
 impl<'a> Token<'a> {
-    fn action(v: &'a str) -> Self {
-        Self::Action(ActionType::from_str(v).unwrap())
-    }
-    fn goto(v: &'a str) -> Self {
-        Self::Option(OptionType::Goto(v))
-    }
-    fn jump(v: &'a str) -> Self {
-        Self::Option(OptionType::Jump(v))
-    }
-    fn option(v: &'a str) -> Self {
-        Self::Option(OptionType::Value(v))
-    }
     fn space(_: &'a str) -> Self {
         Token::Space
     }
@@ -597,32 +627,63 @@ fn parser<F>(input: &'_ str, is_user_chain: F) -> IResult<&'_ str, RawACLRule<'_
 where
     F: Fn(&str) -> bool,
 {
-    let parser = alt_impl!(
+    let parser1 = alt_impl!(
         Token,
-        "Name" = name("-A"),
-        "jump" = verify(tag_value("-j"), is_user_chain),
-        "action" = verify(tag_value("-j"), |value| ActionType::from_str(value).is_ok()),
-        "option" = tag_value("--reject-with"),
-        "goto" = tag_value("-g"),
+        "Name" = name,
+        "Action" = map(
+            verify(tag_value("-j"), |value: &str| value != "LOG"
+                && ActionType::from_str(value).is_ok()), // TODO выкинуть один :from_str
+            |v| ActionType::from_str(v).unwrap()
+        ),
+        "Option" = alt((
+            map(tag_value("--reject-with"), |v| OptionType::Value(v)),
+            map(tag_value("-g"), |v| OptionType::Goto(v)),
+            map(
+                verify(tag_value("-j"), is_user_chain),
+                |v| OptionType::Jump(v)
+            ),
+        )),
+        "Log" = map(verify(tag_value("-j"), |value: &str| value == "LOG"), |v| {
+            ActionType::from_str(v).unwrap()
+        }),
+        "LogLevel" = log_level,
         "ActionModifier" = ip_options,
         "Ports" = port("--ports"),
         "SourcePorts" = alt((port("--sports"), port("--sport"))),
         "DestinationPorts" = alt((port("--dports"), port("--dport"))),
         "Protocol" = protocol,
-        "TCPFlags" = tcp_flags,
+        "TCPFlags" = TSPFlags::parser,
         "TTL" = ttl,
         "DSCP" = dscp,
         "Fragment" = fragment,
         "PacketLength" = length,
         "IPProtocolOption" = ip_protocol_options,
+        "Destination" = ip4_address("-d"),
+        "Source" = ip4_address("-s"),
         "space" = space1,
         "Error" = unknown_part,
     );
 
-    fold_many1(parser, RawACLRule::default, |mut acc, item: Token| {
-        acc.mapping(item);
-        acc
-    })
+    let parser2 = alt_impl!(
+        Token,
+        "IPrange" = module("iprange"),
+        "SrcRange" = ip4_range_address("--srcrange"),
+        "DstRange" = ip4_range_address("--dstrange"),
+        "Conntrack" = module("conntrack"),
+        "Ctorigsrc" = ip4_address("--ctorigsrc"),
+        "Ctorigdst" = ip4_address("--ctorigdst"),
+        "Ctorigdstport" = port("--ctorigdstport"),
+        "Ctorigsrcport" = port("--ctorigsrcport"),
+    );
+
+    fold_many1(
+        alt((parser2, parser1)),
+        RawACLRule::default,
+        |mut acc, item: Token| {
+            acc.mapping(item);
+            acc
+        },
+    )
     .parse(input)
 }
 

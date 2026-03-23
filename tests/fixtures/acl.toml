@@ -5,6 +5,10 @@ remaining = ""
 [test_1.expected]
 ActionModifiers = []
 NormalizedAction = "jump"
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
 
 [[test_1.expected.Action]]
 action = "GOTO"
@@ -21,6 +25,10 @@ remaining = ""
 [test_2.expected]
 ActionModifiers = []
 NormalizedAction = "jump"
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
 
 [[test_2.expected.Action]]
 action = "JUMP"
@@ -37,6 +45,11 @@ remaining = ""
 [test_3.expected]
 ActionModifiers = []
 NormalizedAction = "deny"
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
+
 
 [[test_3.expected.Action]]
 action = "REJECT"
@@ -50,6 +63,12 @@ values = ["ip"]
 [test_4]
 input = " -A INPUT -j LOG --log-prefix \"hello guys\""
 remaining = ""
+
+[test_4.expected]
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
 
 [[test_4.expected.ActionModifiers]]
 action = "log-level"
@@ -71,6 +90,11 @@ values = ["ip"]
 input = " -j LOG --log-ip-options --log-tcp-sequence --log-tcp-options --log-level debug"
 remaining = ""
 
+[test_5.expected]
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
 
 [[test_5.expected.ActionModifiers]]
 action = "log-level"
@@ -103,6 +127,10 @@ remaining = ""
 [test_6.expected]
 ActionModifiers = []
 NormalizedAction = "jump"
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
 
 [[test_6.expected.Action]]
 action = "JUMP"
@@ -127,6 +155,10 @@ remaining = ""
 [test_7.expected]
 ActionModifiers = []
 NormalizedAction = "pass"
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
 
 [[test_7.expected.Action]]
 action = "PASS"

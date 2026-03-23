@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 use serde_derive::Serialize;
 
-use nom::{combinator::map, error::ParseError, Parser};
+use crate::domain::ip;
 
 #[derive(Serialize, Clone, PartialEq)]
 pub struct OperatorTypeGeneric<T>(pub T);
@@ -39,6 +39,11 @@ impl<'a> IntoPy<PyObject> for OperatorType {
     }
 }
 
+pub enum SingleOrPair<T> {
+    Single(T),
+    Pair(T, T),
+}
+
 #[derive(Serialize, Clone)]
 pub struct Operator<T> {
     operator: OperatorType,
@@ -69,20 +74,24 @@ where
 }
 
 pub type IntOperator = Operator<u16>;
-impl IntOperator {
-    pub fn parser<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, IntOperator, E>
-    where
-        F: Parser<&'a str, (OperatorType, u16), E>,
-    {
-        map(f, |(operator, value)| {
-            IntOperator::new(operator, vec![value])
-        })
-    }
-}
 
-pub struct IntOperatorBuilder;
+pub struct IntOperatorBuilder {
+    operator: OperatorType,
+}
 impl IntOperatorBuilder {
-    fn build<T>(operator: T, value: SingleOrPair<u16>) -> IntOperator
+    pub fn new(operator: OperatorType) -> Self {
+        Self { operator }
+    }
+
+    pub fn from_value(&self, value: u16) -> IntOperator {
+        IntOperator::new(self.operator.clone(), vec![value])
+    }
+
+    pub fn from_list(&self, values: Vec<u16>) -> IntOperator {
+        IntOperator::new(self.operator.clone(), values)
+    }
+
+    pub fn from_build_operator_type<T>(operator: T, value: SingleOrPair<u16>) -> IntOperator
     where
         T: BuildOperatorType,
     {
@@ -91,76 +100,17 @@ impl IntOperatorBuilder {
             SingleOrPair::Pair(f, s) => IntOperator::new(operator.range(), vec![f, s]),
         }
     }
-
-    pub fn parser<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, IntOperator, E>
-    where
-        T: BuildOperatorType,
-        F: Parser<&'a str, (T, SingleOrPair<u16>), E>,
-    {
-        map(f, |(operator, value)| {
-            IntOperatorBuilder::build(operator, value)
-        })
-    }
-
-    pub fn parser_many<'a, E: ParseError<&'a str>, F, T>(
-        f: F,
-    ) -> impl Parser<&'a str, Vec<IntOperator>, E>
-    where
-        T: BuildOperatorType + Clone,
-        F: Parser<&'a str, (T, Vec<SingleOrPair<u16>>), E>,
-    {
-        map(f, |(operator, values)| {
-            values
-                .into_iter()
-                .map(|i| IntOperatorBuilder::build(operator.clone(), i))
-                .collect()
-        })
-    }
-
-    pub fn parser_single<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, IntOperator, E>
-    where
-        T: BuildOperatorType,
-        F: Parser<&'a str, (T, u16), E>,
-    {
-        map(f, |(operator, value)| {
-            IntOperator::new(operator.single(), vec![value])
-        })
-    }
-
-}
-
-#[derive(Serialize)]
-#[serde(transparent)]
-pub struct DSCP(IntOperator);
-
-impl DSCP {
-    pub fn parser<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, DSCP, E>
-    where
-        F: Parser<&'a str, u16, E>,
-    {
-        map(f, |value| {
-            DSCP(IntOperator::new(OperatorType::EQ, vec![value]))
-        })
-    }
-}
-
-impl IntoPy<PyObject> for DSCP {
-    fn into_py(self, py: Python) -> PyObject {
-        self.0.into_py(py)
-    }
 }
 
 // // https://docs.rs/pyo3/0.15.2/pyo3/prelude/struct.Py.html#method.from_borrowed_ptr
 // в чем разница между into_py и into как будто оба
 // unsafe { PyObject::from_borrowed_ptr(py, self.as_ptr()) }
 // py достается из самого объекта
-// unsafe { Python::assume_gil_acquired()
+// unsafe { Python::assume_gil_acquired()ss
 // unsafe { Py::from_borrowed_ptr(obj.py(), obj.as_ptr()) }
 //
 
 pub type StringOperator<'a> = Operator<&'a str>;
 
-pub enum SingleOrPair<T> {
-    Single(T),
-    Pair(T, T),
-}
+pub type IPOperator = Operator<ip::IPAddress>;
+
