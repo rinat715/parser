@@ -18,6 +18,14 @@ option = "TEST"
 operator = "eq"
 values = ["ip"]
 
+[[test_1.expected.ConnectionStates]]
+operator = "eq"
+values = ["RELATED"]
+
+[[test_1.expected.ConnectionStates]]
+operator = "eq"
+values = ["ESTABLISHED"]
+
 [test_2]
 input = " -j MY_CHAIN"
 remaining = ""
@@ -129,8 +137,6 @@ ActionModifiers = []
 NormalizedAction = "jump"
 Source = []
 NormalizedSource = []
-Destination = []
-NormalizedDestination = []
 
 [[test_6.expected.Action]]
 action = "JUMP"
@@ -147,6 +153,66 @@ values = [300]
 [[test_6.expected.TCPUDPOptions.DestinationPorts]]
 operator = "eq"
 values = [22]
+
+[[test_6.expected.Destination]]
+
+[test_6.expected.Destination.Address]
+operator = "eq"
+
+[[test_6.expected.Destination.Address.values]]
+Prefix = 24
+
+[test_6.expected.Destination.Address.values.Address]
+Address = "172.16.255.0"
+Version = 4
+
+[test_6.expected.Destination.Address.values.NetworkID]
+Address = "172.16.255.0"
+Version = 4
+
+[[test_6.expected.Destination]]
+
+[test_6.expected.Destination.Address]
+operator = "eq"
+
+[[test_6.expected.Destination.Address.values]]
+Prefix = 16
+
+[test_6.expected.Destination.Address.values.Address]
+Address = "192.168.0.0"
+Version = 4
+
+[test_6.expected.Destination.Address.values.NetworkID]
+Address = "192.168.0.0"
+Version = 4
+
+[[test_6.expected.NormalizedDestination]]
+operator = "eq"
+
+[[test_6.expected.NormalizedDestination.values]]
+Prefix = 24
+
+[test_6.expected.NormalizedDestination.values.Address]
+Address = "172.16.255.0"
+Version = 4
+
+[test_6.expected.NormalizedDestination.values.NetworkID]
+Address = "172.16.255.0"
+Version = 4
+
+[[test_6.expected.NormalizedDestination]]
+operator = "eq"
+
+[[test_6.expected.NormalizedDestination.values]]
+Prefix = 16
+
+[test_6.expected.NormalizedDestination.values.Address]
+Address = "192.168.0.0"
+Version = 4
+
+[test_6.expected.NormalizedDestination.values.NetworkID]
+Address = "192.168.0.0"
+Version = 4
 
 [test_7]
 input = "-A INPUT -j SETCLASS -p udp --ttl-gt 200 -f --dscp 0x20 --length 300 --any-opt"
@@ -190,3 +256,28 @@ values = [200]
 [[test_7.expected.IPv4Options.packet_length]]
 operator = "eq"
 values = [300]
+
+[test_8]
+input = "-A OUTPUT -m set --match-set BlockedHosts dst,src -j DROP"
+remaining = ""
+
+[test_8.expected]
+ActionModifiers = []
+NormalizedAction = "deny"
+Source = []
+NormalizedSource = []
+Destination = []
+NormalizedDestination = []
+
+[[test_8.expected.Action]]
+action = "DROP"
+option = ""
+
+[test_8.expected.Protocol]
+operator = "eq"
+values = ["ip"]
+
+[[test_8.expected.Sets]]
+operator = "eq"
+set = "BlockedHosts"
+flags = ["dst"]

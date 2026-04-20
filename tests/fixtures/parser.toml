@@ -52,17 +52,17 @@ action = "DROP"
 operator = "eq"
 values = ["icmp"]
 
-[test_6.expected.source]
+[test_6.expected.source.Address]
 operator = "neq"
 
-[[test_6.expected.source.values]]
+[[test_6.expected.source.Address.values]]
 Prefix = 32
 
-[test_6.expected.source.values.Address]
+[test_6.expected.source.Address.values.Address]
 Address = "10.0.0.4"
 Version = 4
 
-[test_6.expected.source.values.NetworkID]
+[test_6.expected.source.Address.values.NetworkID]
 Address = "10.0.0.4"
 Version = 4
 
@@ -74,6 +74,14 @@ remaining = ""
 name = "INPUT"
 action = "ACCEPT"
 conntrack = "conntrack"
+
+[[test_7.expected.ctstate]]
+operator = "eq"
+values = ["RELATED"]
+
+[[test_7.expected.ctstate]]
+operator = "eq"
+values = ["ESTABLISHED"]
 
 [test_8]
 input = "-A INPUT -m recent --rcheck --seconds 60 --name DEFAULT --rsource -m limit --limit 10/sec -j LOG --log-prefix \"BG \""
@@ -103,17 +111,17 @@ values = ["RST", "URG", "PSH"]
 operator = "eq"
 values = ["ACK"]
 
-[test_9.expected.source]
+[test_9.expected.source.Address]
 operator = "eq"
 
-[[test_9.expected.source.values]]
+[[test_9.expected.source.Address.values]]
 Prefix = 32
 
-[test_9.expected.source.values.Address]
+[test_9.expected.source.Address.values.Address]
 Address = "10.0.0.12"
 Version = 4
 
-[test_9.expected.source.values.NetworkID]
+[test_9.expected.source.Address.values.NetworkID]
 Address = "10.0.0.12"
 Version = 4
 
@@ -124,6 +132,11 @@ remaining = ""
 [test_10.expected]
 name = "OUTPUT"
 action = "DROP"
+
+[test_10.expected.sets]
+operator = "eq"
+set = "BlockedHosts"
+flags = ["dst", "dst"]
 
 [test_11]
 input = "-A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix \"BG \" 123\""
@@ -137,17 +150,17 @@ action = "RETURN"
 action = "log-prefix"
 option = '"BG " 123"'
 
-[test_11.expected.source]
+[test_11.expected.source.Address]
 operator = "eq"
 
-[[test_11.expected.source.values]]
+[[test_11.expected.source.Address.values]]
 Prefix = 32
 
-[test_11.expected.source.values.Address]
+[test_11.expected.source.Address.values.Address]
 Address = "10.134.0.68"
 Version = 4
 
-[test_11.expected.source.values.NetworkID]
+[test_11.expected.source.Address.values.NetworkID]
 Address = "10.134.0.68"
 Version = 4
 
@@ -213,31 +226,31 @@ remaining = ""
 action = "ACCEPT"
 conntrack = "conntrack"
 
-[test_16.expected.source]
+[test_16.expected.source.Address]
 operator = "eq"
 
-[[test_16.expected.source.values]]
+[[test_16.expected.source.Address.values]]
 Prefix = 24
 
-[test_16.expected.source.values.Address]
+[test_16.expected.source.Address.values.Address]
 Address = "10.10.140.0"
 Version = 4
 
-[test_16.expected.source.values.NetworkID]
+[test_16.expected.source.Address.values.NetworkID]
 Address = "10.10.140.0"
 Version = 4
 
-[test_16.expected.ctorigdst]
+[test_16.expected.ctorigdst.Address]
 operator = "eq"
 
-[[test_16.expected.ctorigdst.values]]
+[[test_16.expected.ctorigdst.Address.values]]
 Prefix = 8
 
-[test_16.expected.ctorigdst.values.Address]
+[test_16.expected.ctorigdst.Address.values.Address]
 Address = "10.0.0.0"
 Version = 4
 
-[test_16.expected.ctorigdst.values.NetworkID]
+[test_16.expected.ctorigdst.Address.values.NetworkID]
 Address = "10.0.0.0"
 Version = 4
 

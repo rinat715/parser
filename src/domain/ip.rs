@@ -60,6 +60,7 @@ impl Into<IpAddr> for IP {
 }
 
 
+#[derive(Clone)]
 pub struct IPAddress(IpNet);
 
 impl IPAddress {

@@ -9,7 +9,7 @@ use nom::{
     IResult, Parser,
 };
 
-use crate::domain as d;
+use crate::domain::{self as d, IntOperatorBuilder, StringOperatorBuilder};
 
 // парсеры нельзя клонировать поэтому такая
 fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
@@ -122,9 +122,35 @@ where
     F: Parser<&'a str, u16, E>,
 {
     map(f, |value| {
-        d::IntOperator::new(d::OperatorType::EQ, vec![value])
+        IntOperatorBuilder::new(d::OperatorType::EQ).from_value(value)
     })
 }
+
+pub fn ctstate<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, Vec<d::StringOperator<'a>>, E>
+where
+    T: d::BuildOperatorType,
+    F: Parser<&'a str, (T, Vec<&'a str>), E>,
+{
+    map(f, |(operator, values)| {
+        let builder = StringOperatorBuilder::new(operator.single());
+        values.iter().map(|v| builder.from_value(v)).collect()
+    })
+}
+
+pub fn set<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, d::SetOperator<'a>, E>
+where
+    T: d::BuildOperatorType,
+    F: Parser<&'a str, (T, &'a str, Vec<&'a str>), E>,
+{
+    map(f, |(operator, set, flags)| {
+        d::SetOperator::new(operator.single(), set, flags)
+    })
+}
+
 
 pub struct IntOperator;
 impl IntOperator {

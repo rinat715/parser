@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString};
+use pyo3::types::{PyDict, PyList, PyString};
 use serde_derive::Serialize;
 
 use crate::domain::ip;
@@ -112,5 +112,46 @@ impl IntOperatorBuilder {
 
 pub type StringOperator<'a> = Operator<&'a str>;
 
+pub struct StringOperatorBuilder {
+    operator: OperatorType,
+}
+impl StringOperatorBuilder {
+    pub fn new(operator: OperatorType) -> Self {
+        Self { operator }
+    }
+
+    pub fn from_value<'a>(&self, value: &'a str) -> StringOperator<'a> {
+        StringOperator::new(self.operator.clone(), vec![value])
+    }
+}
+
 pub type IPOperator = Operator<ip::IPAddress>;
 
+#[derive(Serialize, Clone)]
+pub struct SetOperator<'a> {
+    operator: OperatorType,
+    set: &'a str,
+    flags: Vec<&'a str>,
+}
+
+impl<'a> SetOperator<'a> {
+    pub fn new(operator: OperatorType, set: &'a str, flags: Vec<&'a str>) -> Self {
+        Self { operator, set, flags }
+    }
+}
+
+impl<'a> IntoPy<PyObject> for SetOperator<'a>
+{
+    fn into_py(self, py: Python) -> PyObject {
+        let l = PyList::new(
+            py,
+            &[
+                ("Set", self.set.into_py(py)),
+                ("Flags", self.flags.into_py(py)),
+                ("Operator", self.operator.into_py(py)),
+            ],
+        );
+        let dict = PyDict::from_sequence(py, l.into()).unwrap();
+        dict.into_py(py) // Py_INCREF
+    }
+}

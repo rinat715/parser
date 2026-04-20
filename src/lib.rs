@@ -4,7 +4,8 @@ mod parser;
 mod domain;
 use pyo3::prelude::*;
 use pyo3::Python;
-use domain::nftables::ActionType;
+use domain::nftables::ACLRule;
+
 
 #[macro_use]
 extern crate log;
@@ -13,9 +14,10 @@ extern crate log;
 use nftables::rule;
 
 #[pyfunction]
-fn get<'a>(input: &'a str, user_chains: Vec<&'a str>) -> PyResult<domain::ACLRule<'a, ActionType>> {
+fn get<'a>(input: &'a str, user_chains: Vec<&'a str>) -> PyResult<ACLRule<'a>> {
     let borrow = user_chains;
     let (_, rules) = rule(input, &borrow).unwrap();
+
     Ok(rules)
     
 }

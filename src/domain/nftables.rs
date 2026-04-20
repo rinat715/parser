@@ -1,6 +1,6 @@
 use crate::domain::{self as d};
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyDict, PyList, PyString};
 use serde_derive::Serialize;
 use std::str::FromStr;
 
@@ -78,24 +78,25 @@ impl TryInto<d::NormalizedAction> for ActionType {
 
 impl IntoPy<PyObject> for ActionType {
     fn into_py(self, py: Python) -> PyObject {
-        match self {
-            Self::ACCEPT => PyString::new(py, "ACCEPT").into_py(py),
-            Self::DROP => PyString::new(py, "DROP").into_py(py),
-            Self::LOG => PyString::new(py, "LOG").into_py(py),
-            Self::NFLOG => PyString::new(py, "NFLOG").into_py(py),
-            Self::QUEUE => PyString::new(py, "QUEUE").into_py(py),
-            Self::REJECT => PyString::new(py, "REJECT").into_py(py),
-            Self::RETURN => PyString::new(py, "RETURN").into_py(py),
-            Self::GOTO => PyString::new(py, "GOTO").into_py(py),
-            Self::JUMP => PyString::new(py, "JUMP").into_py(py),
-            Self::PASS => PyString::new(py, "PASS").into_py(py),
-            Self::LogLevel => PyString::new(py, "log-level").into_py(py),
-            Self::LogPrefix => PyString::new(py, "log-prefix").into_py(py),
-            Self::LogTCPSequence => PyString::new(py, "log-tcp-sequence").into_py(py),
-            Self::LogTCPOptions => PyString::new(py, "log-tcp-options").into_py(py),
-            Self::LogIPOptions => PyString::new(py, "log-ip-options").into_py(py),
-            Self::LogUID => PyString::new(py, "log-uid").into_py(py),
-        }
+        let res = match self {
+            Self::ACCEPT => PyString::new(py, "ACCEPT"),
+            Self::DROP => PyString::new(py, "DROP"),
+            Self::LOG => PyString::new(py, "LOG"),
+            Self::NFLOG => PyString::new(py, "NFLOG"),
+            Self::QUEUE => PyString::new(py, "QUEUE"),
+            Self::REJECT => PyString::new(py, "REJECT"),
+            Self::RETURN => PyString::new(py, "RETURN"),
+            Self::GOTO => PyString::new(py, "GOTO"),
+            Self::JUMP => PyString::new(py, "JUMP"),
+            Self::PASS => PyString::new(py, "PASS"),
+            Self::LogLevel => PyString::new(py, "log-level"),
+            Self::LogPrefix => PyString::new(py, "log-prefix"),
+            Self::LogTCPSequence => PyString::new(py, "log-tcp-sequence"),
+            Self::LogTCPOptions => PyString::new(py, "log-tcp-options"),
+            Self::LogIPOptions => PyString::new(py, "log-ip-options"),
+            Self::LogUID => PyString::new(py, "log-uid"),
+        };
+        res.into_py(py)
     }
 }
 
@@ -137,3 +138,75 @@ impl crate::domain::BuildOperatorType for OperatorType {
         }
     }
 }
+
+#[derive(Serialize)]
+#[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
+pub struct Vendor<'a> {
+    #[serde(skip_serializing_if = "d::is_empty")]
+    connection_states: Vec<d::StringOperator<'a>>,
+    #[serde(skip_serializing_if = "d::is_empty")]
+    sets: Vec<d::SetOperator<'a>>,
+}
+
+impl<'a> Vendor<'a> {
+    pub fn new(
+        connection_states: Vec<d::StringOperator<'a>>,
+        sets: Vec<d::SetOperator<'a>>,
+    ) -> Self {
+        Self {
+            connection_states: connection_states,
+            sets: sets,
+        }
+    }
+}
+
+impl<'a> IntoPy<PyObject> for Vendor<'a> {
+    fn into_py(self, py: Python) -> PyObject {
+        let l = PyList::new(
+            py,
+            &[
+                ("ConnectionStates", self.connection_states.into_py(py)),
+                ("Sets", self.sets.into_py(py)),
+            ],
+        );
+        let dict = PyDict::from_sequence(py, l.into()).unwrap();
+        dict.into_py(py) // Py_INCREF
+    }
+}
+
+pub struct VendorBulder<'a> {
+    connection_states: Vec<d::StringOperator<'a>>,
+    sets: Vec<d::SetOperator<'a>>,
+}
+
+impl<'a> VendorBulder<'a> {
+    pub fn new() -> Self {
+        Self {
+            connection_states: vec![],
+            sets: vec![],
+        }
+    }
+
+    pub fn extend_connection_states(&mut self, values:  Vec<d::StringOperator<'a>>) -> &mut Self {
+        self.connection_states.extend(values);
+        self
+    }
+
+    pub fn add_set(&mut self, value: Option<d::SetOperator<'a>>) -> &mut Self {
+        value.map(|v| self.sets.push(v));
+        self
+    }
+
+    pub fn build(mut self, default: Vendor<'a>) -> Vendor<'a> {
+        self.connection_states
+            .is_empty()
+            .then(|| self.connection_states = default.connection_states);
+        self.sets.is_empty().then(|| self.sets = default.sets);
+
+        Vendor::new(self.connection_states, self.sets)
+    }
+}
+
+pub type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
+
+pub type ACLRule<'a> = d::ACLRule<'a, ActionType, Vendor<'a>>;

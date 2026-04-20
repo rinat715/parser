@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString};
+use pyo3::types::{PyDict, PyList, PyMapping, PyString};
 use serde_derive::Serialize;
 
 pub mod operators;
@@ -189,9 +189,6 @@ pub struct ICMPOptions {
     type_: Vec<IntOperator>,
 }
 
-//IPv4Options = IPv4Options()
-//IPv6Options = IPv6Options()
-
 #[derive(Serialize)]
 pub struct ProtocolSetting<'a> {
     object_group: Option<StringOperator<'a>>,
@@ -262,9 +259,6 @@ pub struct ProtocolSettingBuilder<'a> {
     ip_protocol_options: Vec<IntOperator>,
     ttl: Vec<IntOperator>,
     packet_length: Vec<IntOperator>,
-    // ICMPOptions
-    code: Vec<IntOperator>,
-    type_: Vec<IntOperator>,
 }
 
 impl<'a> ProtocolSettingBuilder<'a> {
@@ -281,8 +275,6 @@ impl<'a> ProtocolSettingBuilder<'a> {
             ip_protocol_options: vec![],
             ttl: vec![],
             packet_length: vec![],
-            code: vec![],
-            type_: vec![],
         }
     }
 
@@ -421,13 +413,14 @@ pub enum NormalizedAction {
 
 impl<'a> IntoPy<PyObject> for NormalizedAction {
     fn into_py(self, py: Python) -> PyObject {
-        match self {
-            Self::PERMIT => PyString::new(py, "PERMIT").into_py(py),
-            Self::DENY => PyString::new(py, "DENY").into_py(py),
-            Self::JUMP => PyString::new(py, "JUMP").into_py(py),
-            Self::PASS => PyString::new(py, "PASS").into_py(py),
-            Self::RETURN => PyString::new(py, "RETURN").into_py(py),
-        }
+        let res = match self {
+            Self::PERMIT => PyString::new(py, "PERMIT"),
+            Self::DENY => PyString::new(py, "DENY"),
+            Self::JUMP => PyString::new(py, "JUMP"),
+            Self::PASS => PyString::new(py, "PASS"),
+            Self::RETURN => PyString::new(py, "RETURN"),
+        };
+        res.into_py(py)
     }
 }
 
@@ -470,9 +463,20 @@ where
     }
 }
 
+// бекпорт https://docs.rs/pyo3/latest/pyo3/types/trait.PyDictMethods.html#tymethod.update
+pub fn dict_update(py: Python, first: &PyDict, second: &PyMapping) -> PyResult<()> {
+    let result = unsafe { pyo3::ffi::PyDict_Update(first.into_ptr(), second.into_ptr()) };
+
+    if result != -1 {
+        Ok(())
+    } else {
+        Err(PyErr::fetch(py))
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
-pub struct ACLRule<'a, T> {
+pub struct ACLRule<'a, T, T1> {
     action_modifiers: Vec<ActionSetting<'a, T>>,
     action: Vec<ActionSetting<'a, T>>,
     normalized_action: Option<NormalizedAction>,
@@ -483,9 +487,11 @@ pub struct ACLRule<'a, T> {
     normalized_source: Vec<IPOperator>,
     destination: Vec<EndpointSetting>,
     normalized_destination: Vec<IPOperator>,
+    #[serde(flatten)]
+    vendor_specific: Option<T1>
 }
 
-impl<'a, T> ACLRule<'a, T>
+impl<'a, T, T1> ACLRule<'a, T, T1>
 where
     T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
 {
@@ -499,6 +505,7 @@ where
         normalized_source: Vec<IPOperator>,
         destination: Vec<EndpointSetting>,
         normalized_destination: Vec<IPOperator>,
+        vendor_specific: Option<T1>
     ) -> Self {
         Self {
             action,
@@ -510,42 +517,52 @@ where
             normalized_source,
             destination,
             normalized_destination,
+            vendor_specific
         }
     }
 }
 
-impl<'a, T1> IntoPy<PyObject> for ACLRule<'a, T1>
+
+impl<'a, T, T1> IntoPy<PyObject> for ACLRule<'a, T, T1>
 where
+    T: IntoPy<PyObject>,
     T1: IntoPy<PyObject>,
 {
     fn into_py(self, py: Python) -> PyObject {
-        let dict = PyDict::new(py);
-        dict.set_item::<PyObject, PyObject>(
-            "action_modifiers".into_py(py),
-            self.action_modifiers.into_py(py),
-        )
-        .expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("action".into_py(py), self.action.into_py(py))
-            .expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>(
-            "normalized_action".into_py(py),
-            self.normalized_action.into_py(py),
-        )
-        .expect("Failed to set_item on dict");
-        dict.set_item::<PyObject, PyObject>("protocol".into_py(py), self.protocol.into_py(py))
-            .expect("Failed to set_item on dict");
-        dict.into_py(py)
+        let l = PyList::new(
+            py,
+            &[
+                ("action_modifiers", self.action_modifiers.into_py(py)),
+                ("action", self.action.into_py(py)),
+                ("normalized_action", self.normalized_action.into_py(py)),
+                ("protocol", self.protocol.into_py(py)),
+            ],
+        );
+        let res = PyDict::from_sequence(py, l.into()).unwrap();
+
+        let vendor_obj = self.vendor_specific.into_py(py);
+        let vendor_dict: &PyDict = vendor_obj.extract(py).unwrap();
+
+        dict_update(py, res, vendor_dict.as_mapping()).unwrap();
+
+        res.into_py(py) // Py_INCREF
     }
 }
 
-pub struct ACLRuleBulder<'a, T> {
+pub struct ACLRuleBulder<'a, T, T1> {
     action: Vec<ActionSetting<'a, T>>,
     action_modifiers: Vec<ActionSetting<'a, T>>,
     normalized_action: Option<NormalizedAction>,
     line_number: Option<u16>,
+    protocol: Option<ProtocolSetting<'a>>,
+    destination: Vec<EndpointSetting>,
+    normalized_destination: Vec<IPOperator>,
+    source: Vec<EndpointSetting>,
+    normalized_source: Vec<IPOperator>,
+    vendor_specific: Option<T1>
 }
 
-impl<'a, T> ACLRuleBulder<'a, T>
+impl<'a, T, T1> ACLRuleBulder<'a, T, T1>
 where
     T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
 {
@@ -555,8 +572,25 @@ where
             action: vec![],
             normalized_action: None,
             line_number: None,
+            protocol: None,
+            destination: vec![],
+            normalized_destination: vec![],
+            source: vec![],
+            normalized_source: vec![],
+            vendor_specific: None
         }
     }
+
+    pub fn add_protocol(&mut self, value: ProtocolSetting<'a>) -> &mut Self {
+        self.protocol = Some(value);
+        self
+    }
+
+    pub fn add_vendor(&mut self, value: T1) -> &mut Self {
+        self.vendor_specific = Some(value);
+        self
+    }
+
 
     pub fn extend_action_modifiers(&mut self, values: Vec<ActionSetting<'a, T>>) -> &mut Self {
         self.action_modifiers.extend(values);
@@ -573,11 +607,34 @@ where
         self
     }
 
+    pub fn add_source(
+        &mut self,
+        value: Option<EndpointSetting>,
+        normalize: &impl Normalizator<Arg = EndpointSetting, Result = IPOperator>,
+    ) -> &mut Self {
+        value.map(|v| {
+            self.normalized_destination.push(normalize.normalize(&v));
+            self.destination.push(v)
+        });
+        self
+    }
+
+    pub fn add_destination(
+        &mut self,
+        value: Option<EndpointSetting>,
+        normalize: &impl Normalizator<Arg = EndpointSetting, Result = IPOperator>,
+    ) -> &mut Self {
+        value.map(|v| {
+            self.normalized_destination.push(normalize.normalize(&v));
+            self.destination.push(v)
+        });
+        self
+    }
+
     pub fn build(
         mut self,
-        default: ACLRule<'a, T>,
-        protocol: ProtocolSettingBuilder<'a>,
-    ) -> ACLRule<'a, T> {
+        default: ACLRule<'a, T, T1>,
+    ) -> ACLRule<'a, T, T1> {
         self.action.is_empty().then(|| self.action = default.action);
         self.action_modifiers
             .is_empty()
@@ -593,17 +650,46 @@ where
             self.action_modifiers,
             self.normalized_action.or(default.normalized_action),
             self.line_number.or(default.line_number),
-            Some(protocol.build(default.protocol.unwrap())),
-            vec![],
-            vec![],
-            vec![],
-            vec![],
+            self.protocol,
+            self.source,
+            self.normalized_source,
+            self.destination,
+            self.normalized_destination,
+            self.vendor_specific
         )
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
 pub struct EndpointSetting {
     address: IPOperator,
+}
+
+impl EndpointSetting {
+    pub fn new(address: IPOperator) -> Self {
+        Self { address }
+    }
+}
+
+pub struct NormalizeEndpointSetting;
+impl NormalizeEndpointSetting {
+    pub fn new() -> Self {
+        Self
+    }
+}
+impl Normalizator for NormalizeEndpointSetting {
+    type Arg = EndpointSetting;
+    type Result = IPOperator;
+
+    fn normalize(&self, value: &Self::Arg) -> Self::Result {
+        value.address.clone()
+    }
+}
+
+pub trait Normalizator {
+    type Arg;
+    type Result;
+
+    fn normalize(&self, value: &Self::Arg) -> Self::Result;
 }

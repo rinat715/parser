@@ -4,7 +4,7 @@ use nom::{
     character::complete::{alpha1, hex_digit1, line_ending, not_line_ending, space1, u16},
     combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value, verify},
     multi::fold_many1,
-    sequence::{pair, preceded, separated_pair, terminated},
+    sequence::{pair, preceded, separated_pair, terminated, tuple},
     IResult, Parser,
 };
 use serde_derive::Serialize;
@@ -19,15 +19,8 @@ use macros::{alt_impl, is_not_null, Mapping};
 
 type Operator = d::nftables::OperatorType;
 type ActionType = d::nftables::ActionType;
-type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
-type ACLRule<'a> = d::ACLRule<'a, ActionType>;
-type ACLRuleBulder<'a> = d::ACLRuleBulder<'a, ActionType>;
-
-impl<'a> ACLRule<'a> {
-    pub fn builder() -> ACLRuleBulder<'a> {
-        ACLRuleBulder::new()
-    }
-}
+type ACLRule<'a> = d::nftables::ACLRule<'a>;
+type ActionSetting<'a> = d::nftables::ActionSetting<'a>;
 
 #[cfg(test)]
 mod tests {
@@ -318,14 +311,14 @@ fn module(arg: &'static str) -> impl Fn(&str) -> IResult<&str, &str> {
 //  ! -s 192.168.0.1/32
 //  -A OUTPUT -s 192.168.0.1/32 -d 100.100.100.0/24 p icmp -m iprange --srcrange 192.168.0.2-192.168.0.100 ! --dstrange 100.100.100.10-100.100.100.200
 // -m conntrack --ctorigsrc 10.10.140.3 --ctorigdst 10.0.0.0/8 ! --ctorigdstport 443
-fn ip4_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IPOperator> {
+fn ip4_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::EndpointSetting> {
     move |input: &str| {
         map(
             pair(
                 map(operator, |v| v.single()),
                 preceded_tag_space(arg, p::ip4_adresss),
             ),
-            |(operator, ip)| d::IPOperator::new(operator, vec![ip]),
+            |(operator, ip)| d::EndpointSetting::new(d::IPOperator::new(operator, vec![ip])),
         )
         .parse(input)
     }
@@ -430,6 +423,49 @@ fn log_level<'a>(s: &'a str) -> IResult<&'a str, ActionSetting<'a>> {
     .parse(s)
 }
 
+// --ctstate INVALID,RELATED,SNAT
+// ! --ctstate INVALID,RELATED,SNAT
+fn ctstate<'a>(s: &'a str) -> IResult<&'a str, Vec<d::StringOperator<'a>>> {
+    let parser = pair(
+        operator,
+        preceded_tag_space(
+            "--ctstate",
+            separated_by_comma(alt((
+                tag("ESTABLISHED"),
+                tag("INVALID"),
+                tag("NEW"),
+                tag("RELATED"),
+                tag("SNAT"),
+                tag("DNAT"),
+            ))),
+        ),
+    );
+    p::ctstate(parser).parse(s)
+}
+
+// [!] --match-set setname flag1[,flag2[,...,flagn]]
+// --match-set test src,dst
+// ! --match-set test src,dst
+fn set<'a>(s: &'a str) -> IResult<&'a str, d::SetOperator<'a>> {
+    let parser = map(
+        tuple((
+            operator,
+            preceded_tag_space("--match-set", alpha1),
+            space1,
+            separated_by_comma(alt((
+                tag("dst"),
+                tag("srcport"),
+                tag("dstport"),
+                tag("iniface"),
+                tag("outiface"),
+            ))),
+        )),
+        |res| (res.0, res.1, res.3),
+    );
+
+    p::set(parser).parse(s)
+}
+
 #[is_not_null(all)]
 fn action_setting<'a>(
     action: Option<ActionType>,
@@ -493,19 +529,22 @@ struct RawACLRule<'a> {
     #[serde(skip_serializing_if = "d::is_empty")]
     #[mapping(skip)]
     ip_protocol_options: Vec<d::IntOperator>,
-    source: Option<d::IPOperator>,
-    destination: Option<d::IPOperator>,
+    source: Option<d::EndpointSetting>,
+    destination: Option<d::EndpointSetting>,
     #[mapping(rename = IPrange)]
     iprange: Option<&'a str>,
     src_range: Option<d::IPOperator>,
     dst_range: Option<d::IPOperator>,
     conntrack: Option<&'a str>,
-    ctorigsrc: Option<d::IPOperator>,
-    ctorigdst: Option<d::IPOperator>,
+    ctorigsrc: Option<d::EndpointSetting>,
+    ctorigdst: Option<d::EndpointSetting>,
     #[serde(skip_serializing_if = "d::is_empty")]
     ctorigdstport: Vec<d::IntOperator>,
     #[serde(skip_serializing_if = "d::is_empty")]
     ctorigsrcport: Vec<d::IntOperator>,
+    #[serde(skip_serializing_if = "d::is_empty")]
+    ctstate: Vec<d::StringOperator<'a>>,
+    sets: Option<d::SetOperator<'a>>,
 }
 
 impl<'a> RawACLRule<'a> {
@@ -548,7 +587,7 @@ impl<'a> d::Builder for RawACLRule<'a> {
 
         protocol_setting.add_ttl(self.ttl); // еще доступно
 
-        let mut acl_rule_builder = ACLRule::builder();
+        let mut acl_rule_builder = d::ACLRuleBulder::new();
 
         let acl_rule = acl_rule_builder.add_action(action_setting(self.action, self.option));
 
@@ -563,26 +602,48 @@ impl<'a> d::Builder for RawACLRule<'a> {
 
         acl_rule.extend_action_modifiers(self.action_modifiers);
 
-        acl_rule_builder.build(
-            ACLRule::new(
-                vec![ActionSetting::new(d::nftables::ActionType::PASS, "")],
-                vec![],
-                None,
-                None,
-                Some(d::ProtocolSetting::new(
-                    None,
-                    Some(d::Protocol::ip()),
-                    None,
-                    None,
-                    None,
-                )),
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-            ),
-            protocol_setting_bulder,
-        )
+        let direction = d::NormalizeEndpointSetting::new();
+
+        acl_rule
+            .add_destination(self.destination, &direction)
+            .add_source(self.source, &direction);
+
+        self.conntrack.is_some().then(|| {
+            acl_rule
+                .add_destination(self.ctorigdst, &direction)
+                .add_source(self.ctorigsrc, &direction);
+        });
+
+        acl_rule.add_protocol(protocol_setting_bulder.build(d::ProtocolSetting::new(
+            None,
+            Some(d::Protocol::ip()),
+            None,
+            None,
+            None,
+        )));
+
+        let mut vendor_builder = d::nftables::VendorBulder::new();
+
+        vendor_builder
+            .add_set(self.sets)
+            .extend_connection_states(self.ctstate);
+
+        let vendor = vendor_builder.build(d::nftables::Vendor::new(vec![], vec![]));
+
+        acl_rule.add_vendor(vendor);
+
+        acl_rule_builder.build(d::ACLRule::new(
+            vec![ActionSetting::new(d::nftables::ActionType::PASS, "")],
+            vec![],
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            None,
+        ))
     }
 }
 
@@ -605,16 +666,18 @@ enum Token<'a> {
     DSCP(d::IntOperator),
     PacketLength(d::IntOperator),
     IPProtocolOption(d::IntOperator),
-    Source(d::IPOperator),
-    Destination(d::IPOperator),
+    Source(d::EndpointSetting),
+    Destination(d::EndpointSetting),
     IPrange(&'a str),
     SrcRange(d::IPOperator),
     DstRange(d::IPOperator),
     Conntrack(&'a str),
-    Ctorigsrc(d::IPOperator),
-    Ctorigdst(d::IPOperator),
+    Ctorigsrc(d::EndpointSetting),
+    Ctorigdst(d::EndpointSetting),
     Ctorigdstport(Vec<d::IntOperator>),
     Ctorigsrcport(Vec<d::IntOperator>),
+    Ctstate(Vec<d::StringOperator<'a>>),
+    Sets(d::SetOperator<'a>),
 }
 
 impl<'a> Token<'a> {
@@ -674,6 +737,8 @@ where
         "Ctorigdst" = ip4_address("--ctorigdst"),
         "Ctorigdstport" = port("--ctorigdstport"),
         "Ctorigsrcport" = port("--ctorigsrcport"),
+        "Ctstate" = ctstate,
+        "Sets" = set,
     );
 
     fold_many1(
