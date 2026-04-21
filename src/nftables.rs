@@ -11,7 +11,7 @@ use serde_derive::Serialize;
 use std::cmp;
 use std::str::FromStr;
 
-use crate::domain::{self as d, BuildOperatorType};
+use crate::domain::{self as d, BuildOperatorType, Merge};
 use crate::parser::{self as p};
 use crate::parser::{preceded_tag_space, separated_by_comma, SingleOrPairU16};
 use d::{Builder, Mapping};
@@ -565,48 +565,92 @@ impl<'a> d::Builder for RawACLRule<'a> {
     type Result = ACLRule<'a>;
 
     fn build(self) -> Self::Result {
-        let mut protocol_setting_bulder = d::ProtocolSetting::builder(); // мутабельное значение
+        let defaults = ACLRule::new(
+            None,
+            Some(d::ProtocolSetting::new(
+                None,
+                Some(d::Protocol::ip()),
+                None,
+                None,
+                None,
+            )),
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Some(d::ACL::new(
+                vec![ActionSetting::new(d::nftables::ActionType::PASS, "")],
+                vec![],
+                Some(d::NormalizedAction::PASS),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            )),
+            Some(d::nftables::Vendor::default()),
+        );
 
-        let protocol_setting = protocol_setting_bulder // мутабельная ссылка
-            .set_protocol(self.protocol)
-            .extend_source_ports(self.source_ports)
-            .extend_source_ports(self.ports.clone())
-            .extend_destination_ports(self.destination_ports)
-            .extend_destination_ports(self.ports)
-            .add_fragment(self.fragment)
-            .add_dscp(self.dscp)
-            .add_packet_length(self.packet_length)
-            .extend_ip_protocol_options(self.ip_protocol_options)
-            .set_flags(self.tcp_flags);
+        let protocol = {
+            let mut protocol_setting_bulder = d::ProtocolSetting::builder(); // мутабельное значение
 
-        self.conntrack.is_some().then(|| {
-            protocol_setting // борроу в замыкание
-                .extend_source_ports(self.ctorigsrcport)
-                .extend_destination_ports(self.ctorigdstport);
-        });
+            let protocol_setting = protocol_setting_bulder // мутабельная ссылка
+                .set_protocol(self.protocol)
+                .extend_source_ports(self.source_ports)
+                .extend_source_ports(self.ports.clone())
+                .extend_destination_ports(self.destination_ports)
+                .extend_destination_ports(self.ports)
+                .add_fragment(self.fragment)
+                .add_dscp(self.dscp)
+                .add_packet_length(self.packet_length)
+                .extend_ip_protocol_options(self.ip_protocol_options)
+                .set_flags(self.tcp_flags);
 
-        protocol_setting.add_ttl(self.ttl); // еще доступно
+            self.conntrack.is_some().then(|| {
+                protocol_setting // борроу в замыкание
+                    .extend_source_ports(self.ctorigsrcport)
+                    .extend_destination_ports(self.ctorigdstport);
+            });
 
-        let mut acl_rule_builder = d::ACLRuleBulder::new();
+            protocol_setting.add_ttl(self.ttl); // еще доступно
+            protocol_setting_bulder.build()
+        };
 
-        let acl_rule = acl_rule_builder.add_action(action_setting(self.action, self.option));
+        let extended = {
+            let mut extended_builder = d::ACL::default();
 
-        self.log.is_some().then(|| {
-            acl_rule
-                .add_action(action_setting(self.log, None))
-                .add_action_modifier(self.log_level.or(Some(ActionSetting::new(
-                    d::nftables::ActionType::LogLevel,
-                    "warning",
-                ))))
-        });
+            let extended = extended_builder.add_action(action_setting(self.action, self.option));
 
-        acl_rule.extend_action_modifiers(self.action_modifiers);
+            self.log.is_some().then(|| {
+                extended
+                    .add_action(action_setting(self.log, None))
+                    .add_action_modifier(self.log_level.or(Some(ActionSetting::new(
+                        d::nftables::ActionType::LogLevel,
+                        "warning",
+                    ))))
+            });
+
+            extended.extend_action_modifiers(self.action_modifiers);
+            extended_builder.build()
+        };
+
+        let vendor = {
+            let mut builder = d::nftables::Vendor::default();
+
+            builder
+                .add_set(self.sets)
+                .extend_connection_states(self.ctstate);
+
+            builder.build()
+        };
+
+        let mut acl_rule_builder = Self::Result::default();
 
         let direction = d::NormalizeEndpointSetting::new();
 
-        acl_rule
-            .add_destination(self.destination, &direction)
-            .add_source(self.source, &direction);
+        let acl_rule = acl_rule_builder.add_destination(self.destination, &direction);
+        acl_rule.add_source(self.source, &direction);
 
         self.conntrack.is_some().then(|| {
             acl_rule
@@ -614,36 +658,13 @@ impl<'a> d::Builder for RawACLRule<'a> {
                 .add_source(self.ctorigsrc, &direction);
         });
 
-        acl_rule.add_protocol(protocol_setting_bulder.build(d::ProtocolSetting::new(
-            None,
-            Some(d::Protocol::ip()),
-            None,
-            None,
-            None,
-        )));
-
-        let mut vendor_builder = d::nftables::VendorBulder::new();
-
-        vendor_builder
-            .add_set(self.sets)
-            .extend_connection_states(self.ctstate);
-
-        let vendor = vendor_builder.build(d::nftables::Vendor::new(vec![], vec![]));
-
+        acl_rule.add_protocol(protocol);
+        acl_rule.add_extended(extended);
         acl_rule.add_vendor(vendor);
 
-        acl_rule_builder.build(d::ACLRule::new(
-            vec![ActionSetting::new(d::nftables::ActionType::PASS, "")],
-            vec![],
-            None,
-            None,
-            None,
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            None,
-        ))
+        let mut result = acl_rule_builder.build();
+        result.merge(defaults);
+        result
     }
 }
 

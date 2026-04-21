@@ -1,4 +1,5 @@
 use crate::domain::{self as d};
+use macros::is_not_null;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
 use serde_derive::Serialize;
@@ -139,7 +140,7 @@ impl crate::domain::BuildOperatorType for OperatorType {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
 pub struct Vendor<'a> {
     #[serde(skip_serializing_if = "d::is_empty")]
@@ -149,14 +150,29 @@ pub struct Vendor<'a> {
 }
 
 impl<'a> Vendor<'a> {
+    #[is_not_null(all)]
     pub fn new(
         connection_states: Vec<d::StringOperator<'a>>,
         sets: Vec<d::SetOperator<'a>>,
-    ) -> Self {
-        Self {
+    ) -> Option<Self> {
+        Some(Self {
             connection_states: connection_states,
             sets: sets,
-        }
+        })
+    }
+
+    pub fn extend_connection_states(&mut self, values: Vec<d::StringOperator<'a>>) -> &mut Self {
+        self.connection_states.extend(values);
+        self
+    }
+
+    pub fn add_set(&mut self, value: Option<d::SetOperator<'a>>) -> &mut Self {
+        value.map(|v| self.sets.push(v));
+        self
+    }
+
+    pub fn build(self) -> Option<Self> {
+        Self::new(self.connection_states, self.sets)
     }
 }
 
@@ -174,39 +190,6 @@ impl<'a> IntoPy<PyObject> for Vendor<'a> {
     }
 }
 
-pub struct VendorBulder<'a> {
-    connection_states: Vec<d::StringOperator<'a>>,
-    sets: Vec<d::SetOperator<'a>>,
-}
-
-impl<'a> VendorBulder<'a> {
-    pub fn new() -> Self {
-        Self {
-            connection_states: vec![],
-            sets: vec![],
-        }
-    }
-
-    pub fn extend_connection_states(&mut self, values:  Vec<d::StringOperator<'a>>) -> &mut Self {
-        self.connection_states.extend(values);
-        self
-    }
-
-    pub fn add_set(&mut self, value: Option<d::SetOperator<'a>>) -> &mut Self {
-        value.map(|v| self.sets.push(v));
-        self
-    }
-
-    pub fn build(mut self, default: Vendor<'a>) -> Vendor<'a> {
-        self.connection_states
-            .is_empty()
-            .then(|| self.connection_states = default.connection_states);
-        self.sets.is_empty().then(|| self.sets = default.sets);
-
-        Vendor::new(self.connection_states, self.sets)
-    }
-}
-
 pub type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
 
-pub type ACLRule<'a> = d::ACLRule<'a, ActionType, Vendor<'a>>;
+pub type ACLRule<'a> = d::Rule<'a, d::ACL<'a, ActionType>, Vendor<'a>>;

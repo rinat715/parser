@@ -3,20 +3,20 @@ input = "-A INPUT -g TEST --ctstate RELATED,ESTABLISHED"
 remaining = ""
 
 [test_1.expected]
-ActionModifiers = []
-NormalizedAction = "jump"
 Source = []
 NormalizedSource = []
 Destination = []
 NormalizedDestination = []
-
-[[test_1.expected.Action]]
-action = "GOTO"
-option = "TEST"
+ActionModifiers = []
+NormalizedAction = "jump"
 
 [test_1.expected.Protocol]
 operator = "eq"
 values = ["ip"]
+
+[[test_1.expected.Action]]
+action = "GOTO"
+option = "TEST"
 
 [[test_1.expected.ConnectionStates]]
 operator = "eq"
@@ -31,42 +31,40 @@ input = " -j MY_CHAIN"
 remaining = ""
 
 [test_2.expected]
-ActionModifiers = []
-NormalizedAction = "jump"
 Source = []
 NormalizedSource = []
 Destination = []
 NormalizedDestination = []
-
-[[test_2.expected.Action]]
-action = "JUMP"
-option = "MY_CHAIN"
+ActionModifiers = []
+NormalizedAction = "jump"
 
 [test_2.expected.Protocol]
 operator = "eq"
 values = ["ip"]
+
+[[test_2.expected.Action]]
+action = "JUMP"
+option = "MY_CHAIN"
 
 [test_3]
 input = " -j REJECT --reject-with tcp-reset"
 remaining = ""
 
 [test_3.expected]
-ActionModifiers = []
-NormalizedAction = "deny"
 Source = []
 NormalizedSource = []
 Destination = []
 NormalizedDestination = []
-
-
-[[test_3.expected.Action]]
-action = "REJECT"
-option = "tcp-reset"
+ActionModifiers = []
+NormalizedAction = "deny"
 
 [test_3.expected.Protocol]
 operator = "eq"
 values = ["ip"]
 
+[[test_3.expected.Action]]
+action = "REJECT"
+option = "tcp-reset"
 
 [test_4]
 input = " -A INPUT -j LOG --log-prefix \"hello guys\""
@@ -77,6 +75,10 @@ Source = []
 NormalizedSource = []
 Destination = []
 NormalizedDestination = []
+
+[test_4.expected.Protocol]
+operator = "eq"
+values = ["ip"]
 
 [[test_4.expected.ActionModifiers]]
 action = "log-level"
@@ -90,10 +92,6 @@ option = '"hello guys"'
 action = "LOG"
 option = ""
 
-[test_4.expected.Protocol]
-operator = "eq"
-values = ["ip"]
-
 [test_5]
 input = " -j LOG --log-ip-options --log-tcp-sequence --log-tcp-options --log-level debug"
 remaining = ""
@@ -103,6 +101,10 @@ Source = []
 NormalizedSource = []
 Destination = []
 NormalizedDestination = []
+
+[test_5.expected.Protocol]
+operator = "eq"
+values = ["ip"]
 
 [[test_5.expected.ActionModifiers]]
 action = "log-level"
@@ -124,23 +126,15 @@ option = ""
 action = "LOG"
 option = ""
 
-[test_5.expected.Protocol]
-operator = "eq"
-values = ["ip"]
-
 [test_6]
 input = "-A INPUT -s 192.168.0.0/16 -d 172.16.255.0/24 -p tcp -m tcp --dports 22,23 -m multiport --sports 300:400 -j MY_CHAIN"
 remaining = ""
 
 [test_6.expected]
-ActionModifiers = []
-NormalizedAction = "jump"
 Source = []
 NormalizedSource = []
-
-[[test_6.expected.Action]]
-action = "JUMP"
-option = "MY_CHAIN"
+ActionModifiers = []
+NormalizedAction = "jump"
 
 [test_6.expected.Protocol]
 operator = "eq"
@@ -214,21 +208,21 @@ Version = 4
 Address = "192.168.0.0"
 Version = 4
 
+[[test_6.expected.Action]]
+action = "JUMP"
+option = "MY_CHAIN"
+
 [test_7]
 input = "-A INPUT -j SETCLASS -p udp --ttl-gt 200 -f --dscp 0x20 --length 300 --any-opt"
 remaining = ""
 
 [test_7.expected]
-ActionModifiers = []
-NormalizedAction = "pass"
 Source = []
 NormalizedSource = []
 Destination = []
 NormalizedDestination = []
-
-[[test_7.expected.Action]]
-action = "PASS"
-option = ""
+ActionModifiers = []
+NormalizedAction = "pass"
 
 [test_7.expected.Protocol]
 operator = "eq"
@@ -257,25 +251,29 @@ values = [200]
 operator = "eq"
 values = [300]
 
+[[test_7.expected.Action]]
+action = "PASS"
+option = ""
+
 [test_8]
 input = "-A OUTPUT -m set --match-set BlockedHosts dst,src -j DROP"
 remaining = ""
 
 [test_8.expected]
-ActionModifiers = []
-NormalizedAction = "deny"
 Source = []
 NormalizedSource = []
 Destination = []
 NormalizedDestination = []
-
-[[test_8.expected.Action]]
-action = "DROP"
-option = ""
+ActionModifiers = []
+NormalizedAction = "deny"
 
 [test_8.expected.Protocol]
 operator = "eq"
 values = ["ip"]
+
+[[test_8.expected.Action]]
+action = "DROP"
+option = ""
 
 [[test_8.expected.Sets]]
 operator = "eq"

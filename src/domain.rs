@@ -218,6 +218,23 @@ impl<'a> ProtocolSetting<'a> {
         }
     }
 
+    #[is_not_null(all)]
+    pub fn new_not_null(
+        object_group: Option<StringOperator<'a>>,
+        protocol: Option<Protocol<'a>>,
+        tcp_udp_options: Option<TCPUDPOptions<'a>>,
+        ip_options: Option<IPOptions>,
+        icmp_options: Option<ICMPOptions>,
+    ) -> Option<Self> {
+        Some(Self::new(
+            object_group,
+            protocol,
+            tcp_udp_options,
+            ip_options,
+            icmp_options,
+        ))
+    }
+
     pub fn builder() -> ProtocolSettingBuilder<'a> {
         ProtocolSettingBuilder::new()
     }
@@ -357,36 +374,10 @@ impl<'a> ProtocolSettingBuilder<'a> {
         self
     }
 
-    pub fn build(mut self, default: ProtocolSetting<'a>) -> ProtocolSetting<'a> {
-        default.tcp_udp_options.map(|v| {
-            self.source_ports
-                .is_empty()
-                .then(|| self.source_ports = v.source_ports);
-            self.destination_ports
-                .is_empty()
-                .then(|| self.destination_ports = v.destination_ports);
-            self.flags.is_empty().then(|| self.flags = v.flags)
-        });
-
-        default.ip_options.map(|ip_options| match ip_options {
-            IPOptions::IPv4(v) => {
-                self.fragments
-                    .is_empty()
-                    .then(|| self.fragments = v.fragments);
-                self.dscp.is_empty().then(|| self.dscp = v.dscp);
-                self.precedence
-                    .is_empty()
-                    .then(|| self.precedence = v.precedence);
-                self.ip_protocol_options
-                    .is_empty()
-                    .then(|| self.ip_protocol_options = v.ip_protocol_options);
-                self.ttl.is_empty().then(|| self.ttl = v.ttl);
-            }
-        });
-
-        ProtocolSetting::new(
-            self.object_group.or(default.object_group),
-            self.protocol.or(default.protocol),
+    pub fn build(self) -> Option<ProtocolSetting<'a>> {
+        ProtocolSetting::new_not_null(
+            self.object_group,
+            self.protocol,
             Self::tcp_udp_options(self.source_ports, self.destination_ports, self.flags),
             Self::ip_v_4options(
                 self.fragments,
@@ -474,24 +465,27 @@ pub fn dict_update(py: Python, first: &PyDict, second: &PyMapping) -> PyResult<(
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
-pub struct ACLRule<'a, T, T1> {
+pub struct ACL<'a, T> {
     action_modifiers: Vec<ActionSetting<'a, T>>,
     action: Vec<ActionSetting<'a, T>>,
     normalized_action: Option<NormalizedAction>,
-    line_number: Option<u16>,
-    #[serde(flatten)]
-    protocol: Option<ProtocolSetting<'a>>,
-    source: Vec<EndpointSetting>,
-    normalized_source: Vec<IPOperator>,
-    destination: Vec<EndpointSetting>,
-    normalized_destination: Vec<IPOperator>,
-    #[serde(flatten)]
-    vendor_specific: Option<T1>
+    #[serde(skip_serializing_if = "is_empty")]
+    interface_in: Vec<StringOperator<'a>>,
+    #[serde(skip_serializing_if = "is_empty")]
+    normalized_interface_in: Vec<&'a str>,
+    #[serde(skip_serializing_if = "is_empty")]
+    interface_out: Vec<StringOperator<'a>>,
+    #[serde(skip_serializing_if = "is_empty")]
+    normalized_interface_out: Vec<&'a str>,
+    #[serde(skip_serializing_if = "is_empty")]
+    zone_in: Vec<StringOperator<'a>>,
+    #[serde(skip_serializing_if = "is_empty")]
+    zone_out: Vec<StringOperator<'a>>,
 }
 
-impl<'a, T, T1> ACLRule<'a, T, T1>
+impl<'a, T> ACL<'a, T>
 where
     T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
 {
@@ -499,34 +493,87 @@ where
         action: Vec<ActionSetting<'a, T>>,
         action_modifiers: Vec<ActionSetting<'a, T>>,
         normalized_action: Option<NormalizedAction>,
-        line_number: Option<u16>,
-        protocol: Option<ProtocolSetting<'a>>,
-        source: Vec<EndpointSetting>,
-        normalized_source: Vec<IPOperator>,
-        destination: Vec<EndpointSetting>,
-        normalized_destination: Vec<IPOperator>,
-        vendor_specific: Option<T1>
+        interface_in: Vec<StringOperator<'a>>,
+        normalized_interface_in: Vec<&'a str>,
+        interface_out: Vec<StringOperator<'a>>,
+        normalized_interface_out: Vec<&'a str>,
+        zone_in: Vec<StringOperator<'a>>,
+        zone_out: Vec<StringOperator<'a>>,
     ) -> Self {
         Self {
+            action_modifiers,
+            action,
+            normalized_action,
+            interface_in,
+            normalized_interface_in,
+            interface_out,
+            normalized_interface_out,
+            zone_in,
+            zone_out,
+        }
+    }
+
+    #[is_not_null(all)]
+    pub fn new_not_null(
+        action: Vec<ActionSetting<'a, T>>,
+        action_modifiers: Vec<ActionSetting<'a, T>>,
+        normalized_action: Option<NormalizedAction>,
+        interface_in: Vec<StringOperator<'a>>,
+        normalized_interface_in: Vec<&'a str>,
+        interface_out: Vec<StringOperator<'a>>,
+        normalized_interface_out: Vec<&'a str>,
+        zone_in: Vec<StringOperator<'a>>,
+        zone_out: Vec<StringOperator<'a>>,
+    ) -> Option<Self> {
+        Some(Self::new(
             action,
             action_modifiers,
             normalized_action,
-            line_number,
-            protocol,
-            source,
-            normalized_source,
-            destination,
-            normalized_destination,
-            vendor_specific
-        }
+            interface_in,
+            normalized_interface_in,
+            interface_out,
+            normalized_interface_out,
+            zone_in,
+            zone_out,
+        ))
+    }
+
+    pub fn extend_action_modifiers(&mut self, values: Vec<ActionSetting<'a, T>>) -> &mut Self {
+        self.action_modifiers.extend(values);
+        self
+    }
+
+    pub fn add_action(&mut self, value: Option<ActionSetting<'a, T>>) -> &mut Self {
+        value.map(|v| {
+            self.normalized_action = v.normalized_action().ok();
+            self.action.push(v);
+        });
+        self
+    }
+
+    pub fn add_action_modifier(&mut self, value: Option<ActionSetting<'a, T>>) -> &mut Self {
+        value.map(|v| self.action_modifiers.push(v));
+        self
+    }
+
+    pub fn build(self) -> Option<Self> {
+        Self::new_not_null(
+            self.action,
+            self.action_modifiers,
+            self.normalized_action,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        )
     }
 }
 
-
-impl<'a, T, T1> IntoPy<PyObject> for ACLRule<'a, T, T1>
+impl<'a, T> IntoPy<PyObject> for ACL<'a, T>
 where
     T: IntoPy<PyObject>,
-    T1: IntoPy<PyObject>,
 {
     fn into_py(self, py: Python) -> PyObject {
         let l = PyList::new(
@@ -535,75 +582,59 @@ where
                 ("action_modifiers", self.action_modifiers.into_py(py)),
                 ("action", self.action.into_py(py)),
                 ("normalized_action", self.normalized_action.into_py(py)),
-                ("protocol", self.protocol.into_py(py)),
             ],
         );
         let res = PyDict::from_sequence(py, l.into()).unwrap();
-
-        let vendor_obj = self.vendor_specific.into_py(py);
-        let vendor_dict: &PyDict = vendor_obj.extract(py).unwrap();
-
-        dict_update(py, res, vendor_dict.as_mapping()).unwrap();
 
         res.into_py(py) // Py_INCREF
     }
 }
 
-pub struct ACLRuleBulder<'a, T, T1> {
-    action: Vec<ActionSetting<'a, T>>,
-    action_modifiers: Vec<ActionSetting<'a, T>>,
-    normalized_action: Option<NormalizedAction>,
+#[derive(Serialize, Default)]
+#[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
+pub struct Rule<'a, T, T1> {
     line_number: Option<u16>,
+    #[serde(flatten)]
     protocol: Option<ProtocolSetting<'a>>,
-    destination: Vec<EndpointSetting>,
-    normalized_destination: Vec<IPOperator>,
     source: Vec<EndpointSetting>,
     normalized_source: Vec<IPOperator>,
-    vendor_specific: Option<T1>
+    destination: Vec<EndpointSetting>,
+    normalized_destination: Vec<IPOperator>,
+    #[serde(flatten)]
+    extended: Option<T>,
+    #[serde(flatten)]
+    vendor_specific: Option<T1>,
 }
 
-impl<'a, T, T1> ACLRuleBulder<'a, T, T1>
+impl<'a, T, T1> Rule<'a, T, T1>
 where
-    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
+    T: Default,
+    T1: Default,
 {
-    pub fn new() -> Self {
+    pub fn new(
+        line_number: Option<u16>,
+        protocol: Option<ProtocolSetting<'a>>,
+        source: Vec<EndpointSetting>,
+        normalized_source: Vec<IPOperator>,
+        destination: Vec<EndpointSetting>,
+        normalized_destination: Vec<IPOperator>,
+        extended: Option<T>,
+        vendor_specific: Option<T1>,
+    ) -> Self {
         Self {
-            action_modifiers: vec![],
-            action: vec![],
-            normalized_action: None,
-            line_number: None,
-            protocol: None,
-            destination: vec![],
-            normalized_destination: vec![],
-            source: vec![],
-            normalized_source: vec![],
-            vendor_specific: None
+            line_number,
+            protocol,
+            source,
+            normalized_source,
+            destination,
+            normalized_destination,
+            extended,
+            vendor_specific,
         }
     }
 
-    pub fn add_protocol(&mut self, value: ProtocolSetting<'a>) -> &mut Self {
-        self.protocol = Some(value);
-        self
-    }
-
-    pub fn add_vendor(&mut self, value: T1) -> &mut Self {
-        self.vendor_specific = Some(value);
-        self
-    }
-
-
-    pub fn extend_action_modifiers(&mut self, values: Vec<ActionSetting<'a, T>>) -> &mut Self {
-        self.action_modifiers.extend(values);
-        self
-    }
-
-    pub fn add_action(&mut self, value: Option<ActionSetting<'a, T>>) -> &mut Self {
-        value.map(|v| self.action.push(v));
-        self
-    }
-
-    pub fn add_action_modifier(&mut self, value: Option<ActionSetting<'a, T>>) -> &mut Self {
-        value.map(|v| self.action_modifiers.push(v));
+    pub fn add_protocol(&mut self, value: Option<ProtocolSetting<'a>>) -> &mut Self {
+        value.is_some().then(|| self.protocol = value);
         self
     }
 
@@ -631,32 +662,78 @@ where
         self
     }
 
-    pub fn build(
-        mut self,
-        default: ACLRule<'a, T, T1>,
-    ) -> ACLRule<'a, T, T1> {
-        self.action.is_empty().then(|| self.action = default.action);
-        self.action_modifiers
-            .is_empty()
-            .then(|| self.action_modifiers = default.action_modifiers);
-        self.normalized_action = self
-            .action
-            .first()
-            .map(|v| v.normalized_action().ok())
-            .flatten();
+    pub fn add_extended(&mut self, value: Option<T>) -> &mut Self {
+        value.is_some().then(|| self.extended = value);
+        self
+    }
 
-        ACLRule::new(
-            self.action,
-            self.action_modifiers,
-            self.normalized_action.or(default.normalized_action),
-            self.line_number.or(default.line_number),
+    pub fn add_vendor(&mut self, value: Option<T1>) -> &mut Self {
+        value.is_some().then(|| self.vendor_specific = value);
+        self
+    }
+
+    pub fn build(self) -> Self {
+        Self::new(
+            self.line_number,
             self.protocol,
             self.source,
             self.normalized_source,
             self.destination,
             self.normalized_destination,
-            self.vendor_specific
+            self.extended,
+            self.vendor_specific,
         )
+    }
+}
+
+impl<'a, T, T1> Merge for Rule<'a, T, T1> {
+    fn merge(&mut self, value: Self) -> &mut Self {
+        self.line_number
+            .is_none()
+            .then(|| self.line_number = value.line_number);
+        self.protocol
+            .is_none()
+            .then(|| self.protocol = value.protocol);
+        self.source.is_empty().then(|| self.source = value.source);
+        self.normalized_source
+            .is_empty()
+            .then(|| self.normalized_source = value.normalized_source);
+        self.destination
+            .is_empty()
+            .then(|| self.destination = value.destination);
+        self.normalized_destination
+            .is_empty()
+            .then(|| self.normalized_destination = value.normalized_destination);
+        self.extended
+            .is_none()
+            .then(|| self.extended = value.extended);
+        self.vendor_specific
+            .is_none()
+            .then(|| self.vendor_specific = value.vendor_specific);
+        self
+    }
+}
+
+impl<'a, T, T1> IntoPy<PyObject> for Rule<'a, T, T1>
+where
+    T: IntoPy<PyObject>,
+    T1: IntoPy<PyObject>,
+{
+    fn into_py(self, py: Python) -> PyObject {
+        let l = PyList::new(py, &[("protocol", self.protocol.into_py(py))]);
+        let res = PyDict::from_sequence(py, l.into()).unwrap();
+
+        let extended_obj = self.extended.into_py(py);
+        let extended_dict: &PyDict = extended_obj.extract(py).unwrap();
+
+        dict_update(py, res, extended_dict.as_mapping()).unwrap();
+
+        let vendor_obj = self.vendor_specific.into_py(py);
+        let vendor_dict: &PyDict = vendor_obj.extract(py).unwrap();
+
+        dict_update(py, res, vendor_dict.as_mapping()).unwrap();
+
+        res.into_py(py) // Py_INCREF
     }
 }
 
@@ -692,4 +769,8 @@ pub trait Normalizator {
     type Result;
 
     fn normalize(&self, value: &Self::Arg) -> Self::Result;
+}
+
+pub trait Merge {
+    fn merge(&mut self, value: Self) -> &mut Self;
 }
