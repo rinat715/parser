@@ -14,11 +14,11 @@ serde_derive = "1.0.219"
 toml = { version = "0.8.22", features = ["preserve_order"] }
 ipnet = "2.11.0"
 log = { version = "0.4"}
-macros = { path = "macros" }
+macros = { path = "../macros" }
 
 [dev-dependencies]
-tester = { path = "tester" }
-diff = { path = "diff" }
+tester = { path = "../tester" }
+diff = { path = "../diff" }
 fixtures = "2.5.0"
 
 [build-dependencies]

@@ -1,5 +1,3 @@
-use std::str::Chars;
-
 mod attr;
 
 use attr::Attr;
@@ -21,7 +19,7 @@ fn validator(param_name: &syn::Ident, type_ident: &syn::Ident) -> proc_macro2::T
         "Option" => quote! {#param_name.is_none()},
         "Vec" => quote! {#param_name.is_empty()},
 
-        _ => panic!("dfdfdfdfd"), // TODO
+        _ => todo!()
     }
 }
 
@@ -73,109 +71,6 @@ pub fn is_not_null(attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
-fn title(mut s: Chars<'_>, cap: usize) -> String {
-    let mut result = String::with_capacity(cap);
-    result.push(
-        s.next()
-            .and_then(|c| Some(c.to_ascii_uppercase()))
-            .unwrap_or_default(),
-    );
-    result.extend(s);
-    result
-}
-
-fn split_and_title(s: String) -> String {
-    s.split('_').map(|p| title(p.chars(), p.len())).collect()
-}
-
-fn target_field(s: String) -> Ident {
-    Ident::new(&split_and_title(s), Span::call_site())
-}
-
-//
-// https://github.com/wojciech-graj/bin-proto
-#[proc_macro_derive(Mapping, attributes(mapping))]
-pub fn mapping(input: TokenStream) -> TokenStream {
-    let original_struct = parse_macro_input!(input as DeriveInput);
-
-    let parsed_attrs = Attr::new(&original_struct.attrs);
-
-    let name = original_struct.ident;
-    let (impl_generics, ty_generics, _) = original_struct.generics.split_for_impl();
-
-    let Data::Struct(struct_data) = original_struct.data else {
-        unimplemented!("enums, Union");
-    };
-
-    let serialize_fields = struct_data
-        .fields
-        .iter()
-        .map(|field| {
-            // field.ident is the name of the field
-            let Some(ident) = &field.ident else {
-                unimplemented!("tuple structs");
-            };
-
-            let parsed_field_attr = Attr::new(&field.attrs);
-
-            let ty = &field.ty;
-
-            let target_field = parsed_field_attr
-                .rename
-                .unwrap_or(target_field(ident.to_string()));
-
-            if parsed_field_attr.is_skip {
-                quote!()
-            } else {
-                match ty {
-                    Type::Path(tp) => {
-                        let segments = &tp.path.segments;
-                        if segments[0].ident == "Vec" {
-                            quote!(#target_field(v) => self.#ident = v,)
-                        } else if segments[0].ident == "Option" {
-                            quote!(#target_field(v) => self.#ident = Some(v),)
-                        } else {
-                            quote!()
-                        }
-                    }
-                    _ => panic!(),
-                }
-            }
-        })
-        .filter(|v| !v.is_empty());
-
-    let mut vec = Vec::new();
-
-    for entry in parsed_attrs.extend_fields {
-        let val = entry.1;
-
-        let name = Ident::new(&entry.0, Span::call_site());
-
-        vec.push(quote!(#name(v) => self.#val(v),));
-    }
-
-    let target = parsed_attrs
-        .target
-        .ok_or(syn::Error::new_spanned("Target", "target requered"))
-        .unwrap();
-
-    let mapping = quote! {
-        #[automatically_derived]
-        impl #impl_generics crate::domain::Mapping<#target #impl_generics> for #name #ty_generics {
-            fn mapping(&mut self, target: #target #ty_generics) {
-                match target {
-                    #( #target::#serialize_fields )*
-                    #( #target::#vec )*
-                    _ => ()
-                }
-            }
-
-        }
-    };
-
-    TokenStream::from(mapping)
-}
-
 
 #[proc_macro_derive(ToPyDict, attributes(to_py_dict))]
 pub fn to_py_dict(input: TokenStream) -> TokenStream {
@@ -188,32 +83,35 @@ pub fn to_py_dict(input: TokenStream) -> TokenStream {
         unimplemented!("enums, Union");
     };
 
-     let serialize_fields = struct_data
-        .fields
-        .iter()
-        .map(|field| {
-            // field.ident is the name of the field
-            let Some(ident) = &field.ident else {
-                unimplemented!("tuple structs");
-            };
+    let serialize_fields = struct_data.fields.iter().map(|field| {
+        // field.ident is the name of the field
+        let Some(ident) = &field.ident else {
+            unimplemented!("tuple structs");
+        };
 
-            let parsed_field_attr = Attr::new(&field.attrs);
+        let parsed_field_attr = Attr::new(&field.attrs);
 
-            let field_name = parsed_field_attr.rename.map(|i| i.to_string()).unwrap_or(ident.to_string());
+        let field_name = parsed_field_attr
+            .rename
+            .map(|i| i.to_string())
+            .unwrap_or(ident.to_string());
 
-            let message =  format!("Struct {} Failed to set key {} on dict", field_name, name.to_string());
-
-            quote!(dict.set_item(#field_name.into_py(py), self.#ident.into_py(py)).expect(#message);)
-
-        });
+           // ("ConnectionStates", self.connection_states.into_py(py)),
+        quote!((#field_name, self.#ident.into_py(py)),)
+    });
 
     let mapping = quote! {
         #[automatically_derived]
         impl #impl_generics IntoPy<PyObject> for #name #ty_generics {
             fn into_py(self, py: Python) -> PyObject {
-                let dict = PyDict::new(py);
-                #( #serialize_fields )*
-                dict.into_py(py)
+                let l = PyList::new(
+                    py,
+                    &[
+                        #( #serialize_fields )*
+                    ],
+                );
+                let dict = PyDict::from_sequence(py, l.into()).unwrap();
+                dict.into_py(py) // Py_INCREF
             }
 
         }

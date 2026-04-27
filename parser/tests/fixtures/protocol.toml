@@ -1,0 +1,34 @@
+[test_1]
+input = "-p icmp"
+remaining = ""
+
+[test_1.expected.Protocol]
+operator = "eq"
+values = ["icmp"]
+
+
+[test_2]
+input = "! -p icmp"
+remaining = ""
+
+[test_2.expected.Protocol]
+operator = "neq"
+values = ["icmp"]
+
+
+[test_3]
+input = "! -p 0"
+remaining = ""
+
+[test_3.expected.Protocol]
+operator = "neq"
+values = ["ip"]
+
+
+[test_4]
+input = "-p 1"
+remaining = ""
+
+[test_4.expected.Protocol]
+operator = "eq"
+values = [1]

@@ -1,0 +1,14 @@
+[test_1]
+input = "ip access-list ACL_NAME_3\n"
+remaining = "\n"
+expected = "ACL_NAME_3"
+
+[test_2]
+input = "ip access-list ACL_NAME basic\n"
+remaining = "\n"
+expected = "ACL_NAME"
+
+[test_3]
+input = "ip access-list 100 extend\n"
+remaining = "\n"
+expected = "100"
