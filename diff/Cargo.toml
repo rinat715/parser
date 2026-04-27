@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-termdiff = { git = "https://github.com/rinat715/termdiff" }
+termdiff = "4.1.1"
 colored = "3"

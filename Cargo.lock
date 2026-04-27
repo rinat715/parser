@@ -725,8 +725,9 @@ dependencies = [
 
 [[package]]
 name = "termdiff"
-version = "4.1.0"
-source = "git+https://github.com/rinat715/termdiff#36c9527780b896d96a7af29b125cc1087f60558c"
+version = "4.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "074c7980a51b162cdfc113c6ae24a801efeba9b97582f00f298d337c5286afbb"
 dependencies = [
  "crossterm",
  "similar",
