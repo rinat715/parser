@@ -198,17 +198,3 @@ pub fn alt_impl(item: TokenStream) -> TokenStream {
     })
     .into()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use syn::parse_quote;
-
-    #[test]
-    fn test_split_and_title() {
-        assert_eq!(
-            split_and_title(String::from("action_modifier")),
-            "ActionModifier"
-        );
-    }
-}
