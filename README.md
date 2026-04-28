@@ -23,3 +23,6 @@ Traceback (most recent call last):
   File "<stdin>", line 1, in <module>
 pyo3_runtime.PanicException: called `Result::unwrap()` on an `Err` value: Error(Error { input: "", code: Many1 })
 ```
+
+`maturin develop -m parser/Cargo.toml --cargo-extra-args="--features "extension-module""`
+https://pyo3.rs/v0.23.5/faq.html#i-cant-run-cargo-test-or-i-cant-build-in-a-cargo-workspace-im-having-linker-issues-like-symbol-not-found-or-undefined-reference-to-_pyexc_systemerror

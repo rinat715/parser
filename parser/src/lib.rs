@@ -45,3 +45,26 @@ fn parser_rust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Context>()?;
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::types::PyDict;
+    use pyo3::Python;
+    use pyo3::{IntoPy};
+    
+    #[test]
+    fn test_parser_rust() {
+        Python::with_gil(|py| {
+            let interfaces = vec![String::from("swp1"), String::from("swp2")];
+            let user_chains = vec![String::from("MY_CHAIN")];
+            let context = Context::new(interfaces, user_chains);
+            let res = get("-A INPUT -j DROP -i swp+ -o swp1", &context).unwrap();
+            let obj = res.into_py(py);
+            let dict:  &PyDict  = obj.extract(py).unwrap();
+            assert_eq!(dict.len(), 3);
+        });
+    }
+}
+

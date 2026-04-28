@@ -26,4 +26,7 @@ fixtures = "2.5.0"
 
 [dependencies.pyo3]
 version = "0.15.2"
-features = ["abi3-py36", "extension-module", "auto-initialize"]
+features = ["abi3-py36", "auto-initialize"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
