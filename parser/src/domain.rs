@@ -223,6 +223,7 @@ impl<'a> ProtocolSetting<'a> {
 
 impl<'a> IntoPy<PyObject> for ProtocolSetting<'a> {
     fn into_py(self, py: Python) -> PyObject {
+        
         let l = PyList::new(
             py,
             &[
@@ -480,8 +481,6 @@ where
         normalized_interface_in: Vec<&'a str>,
         interface_out: Vec<StringOperator<'a>>,
         normalized_interface_out: Vec<&'a str>,
-        zone_in: Vec<StringOperator<'a>>,
-        zone_out: Vec<StringOperator<'a>>,
     ) -> Option<Self> {
         Some(Self::new(
             action,
@@ -526,8 +525,6 @@ where
             self.normalized_interface_in,
             self.interface_out,
             self.normalized_interface_out,
-            vec![],
-            vec![],
         )
     }
 }
@@ -717,4 +714,28 @@ pub trait Normalizator {
 
 pub trait Merge {
     fn merge(&mut self, value: Self) -> &mut Self;
+}
+
+
+#[cfg(python_required)]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::types::PyDict;
+    use pyo3::Python;
+    use pyo3::{IntoPy};
+    use pyo3::py_run;
+    
+    #[test]
+    fn test_parser_rust() {
+        Python::with_gil(|py| {
+            let res = ProtocolSetting::new(Some(Protocol::ip()), None, None, None);
+
+            let obj = res.into_py(py);
+            let dict:  &PyDict  = obj.extract(py).unwrap();
+            py_run!(py, dict, r#"
+            assert str(dict) == "{'protocol': {'operator': 'EQ', 'values': ['ip']}, 'tcp_udp_options': None, 'icmp_options': None}"
+            "#);
+        });
+    }
 }

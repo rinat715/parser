@@ -46,13 +46,14 @@ fn parser_rust(_py: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
-
+#[cfg(python_required)]
 #[cfg(test)]
 mod tests {
     use super::*;
     use pyo3::types::PyDict;
     use pyo3::Python;
     use pyo3::{IntoPy};
+    use pyo3::py_run;
     
     #[test]
     fn test_parser_rust() {
@@ -63,7 +64,9 @@ mod tests {
             let res = get("-A INPUT -j DROP -i swp+ -o swp1", &context).unwrap();
             let obj = res.into_py(py);
             let dict:  &PyDict  = obj.extract(py).unwrap();
-            assert_eq!(dict.len(), 3);
+            py_run!(py, dict, r#"
+            assert str(dict) == "{'protocol': {'protocol': {'operator': 'EQ', 'values': ['ip']}, 'tcp_udp_options': None, 'icmp_options': None}, 'action_modifiers': [], 'action': [{'operator': 'DROP', 'values': ''}], 'normalized_action': 'DENY', 'interface_in': [], 'normalized_interface_in': [], 'interface_out': [{'operator': 'EQ', 'values': ['swp']}], 'normalized_interface_out': ['swp'], 'ConnectionStates': [], 'Sets': []}"
+            "#);
         });
     }
 }

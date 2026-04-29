@@ -30,3 +30,6 @@ features = ["abi3-py36", "auto-initialize"]
 
 [features]
 extension-module = ["pyo3/extension-module"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(python_required)'] }

@@ -24,5 +24,30 @@ Traceback (most recent call last):
 pyo3_runtime.PanicException: called `Result::unwrap()` on an `Err` value: Error(Error { input: "", code: Many1 })
 ```
 
-`maturin develop -m parser/Cargo.toml --cargo-extra-args="--features "extension-module""`
+
+extension-module по умолчанию выключен
+
 https://pyo3.rs/v0.23.5/faq.html#i-cant-run-cargo-test-or-i-cant-build-in-a-cargo-workspace-im-having-linker-issues-like-symbol-not-found-or-undefined-reference-to-_pyexc_systemerror
+
+если запустить cargo test без этого модуля 
+`note: rust-lld: error: unable to find library -lpython3.12`
+
+#### тесты 
+```
+cargo test --features "extension-module"
+```
+
+#### тесты с python
+```
+pyenv activate parser
+export LD_LIBRARY_PATH=/home/archman/.pyenv/versions/3.6.15/lib/ 
+cargo test --config 'build.rustflags=["--cfg", "python_required"]'
+```
+
+#### сборка 
+
+```
+pyenv activate parser
+maturin develop -m parser/Cargo.toml --cargo-extra-args="--features "extension-module""
+```
+
