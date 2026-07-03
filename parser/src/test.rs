@@ -10,12 +10,9 @@ fn test_any(a: Vec<u16>, b: Vec<u16>) -> Option<bool> {
     Some(true)
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_validate_args() {
@@ -25,5 +22,4 @@ mod tests {
         assert!(test_any(vec![1], vec![1]).unwrap());
         assert!(test_any(vec![1], vec![]).is_none())
     }
-
 }

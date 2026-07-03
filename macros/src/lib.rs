@@ -2,6 +2,8 @@ mod attr;
 
 use attr::Attr;
 
+mod code_struct;
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
@@ -19,7 +21,7 @@ fn validator(param_name: &syn::Ident, type_ident: &syn::Ident) -> proc_macro2::T
         "Option" => quote! {#param_name.is_none()},
         "Vec" => quote! {#param_name.is_empty()},
 
-        _ => todo!()
+        _ => todo!(),
     }
 }
 
@@ -30,18 +32,15 @@ pub fn is_not_null(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     for arg in func.sig.inputs.clone() {
         if let FnArg::Typed(v) = arg {
-            match (*v.pat, *v.ty) {
-                (Pat::Ident(a), Type::Path(b)) => {
-                    let type_ = b
-                        .path
-                        .segments
-                        .first()
-                        .map(|segment| &segment.ident)
-                        .unwrap();
+            if let (Pat::Ident(a), Type::Path(b)) = (*v.pat, *v.ty) {
+                let type_ = b
+                    .path
+                    .segments
+                    .first()
+                    .map(|segment| &segment.ident)
+                    .unwrap();
 
-                    validators.push(validator(&a.ident, &type_));
-                }
-                _ => (),
+                validators.push(validator(&a.ident, type_));
             }
         }
     }
@@ -71,7 +70,7 @@ pub fn is_not_null(attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
-
+#[deprecated(note = "Don't use this! Use `ToDict` instead.")]
 #[proc_macro_derive(ToPyDict, attributes(to_py_dict))]
 pub fn to_py_dict(input: TokenStream) -> TokenStream {
     let original_struct = parse_macro_input!(input as DeriveInput);
@@ -96,21 +95,21 @@ pub fn to_py_dict(input: TokenStream) -> TokenStream {
             .map(|i| i.to_string())
             .unwrap_or(ident.to_string());
 
-           // ("ConnectionStates", self.connection_states.into_py(py)),
+        // ("ConnectionStates", self.connection_states.into_py(py)),
         quote!((#field_name, self.#ident.into_py(py)),)
     });
 
     let mapping = quote! {
         #[automatically_derived]
-        impl #impl_generics IntoPy<PyObject> for #name #ty_generics {
-            fn into_py(self, py: Python) -> PyObject {
-                let l = PyList::new(
+        impl #impl_generics pyo3::prelude::IntoPy<pyo3::prelude::PyObject> for #name #ty_generics {
+            fn into_py(self, py: pyo3::prelude::Python) -> pyo3::prelude::PyObject {
+                let l = pyo3::types::PyList::new(
                     py,
                     &[
                         #( #serialize_fields )*
                     ],
                 );
-                let dict = PyDict::from_sequence(py, l.into()).unwrap();
+                let dict = pyo3::types::PyDict::from_sequence(py, l.into()).unwrap();
                 dict.into_py(py) // Py_INCREF
             }
 
@@ -166,10 +165,7 @@ impl Parse for ParsedMap {
             }
         }
 
-        Ok(ParsedMap {
-            target: target,
-            entries,
-        })
+        Ok(ParsedMap { target, entries })
     }
 }
 
@@ -197,4 +193,25 @@ pub fn alt_impl(item: TokenStream) -> TokenStream {
         ))
     })
     .into()
+}
+
+#[proc_macro_derive(ToStr, attributes(serialize))]
+pub fn to_str(input: TokenStream) -> TokenStream {
+    let original_struct = parse_macro_input!(input as DeriveInput);
+
+    code_struct::parse(&original_struct)
+}
+
+#[proc_macro_derive(ToDict, attributes(serialize))]
+pub fn to_dict(input: TokenStream) -> TokenStream {
+    let original_struct = parse_macro_input!(input as DeriveInput);
+
+    code_struct::parse_for_dict(&original_struct)
+}
+
+#[proc_macro_derive(ToSerialzeMap, attributes(serialize))]
+pub fn to_to_serialize_map(input: TokenStream) -> TokenStream {
+    let original_struct = parse_macro_input!(input as DeriveInput);
+
+    code_struct::parse_for_serialize_dict_entries(&original_struct)
 }

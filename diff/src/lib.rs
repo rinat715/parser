@@ -9,15 +9,15 @@ pub struct CustomSignsTheme {}
 
 impl Theme for CustomSignsTheme {
     fn equal_prefix<'this>(&self) -> Cow<'this, str> {
-        "".into()
+        "".red().to_string().into()
     }
 
     fn delete_prefix<'this>(&self) -> Cow<'this, str> {
-        "-".into()
+        "-".red().to_string().into()
     }
 
     fn insert_prefix<'this>(&self) -> Cow<'this, str> {
-        "+".into()
+        "+".green().to_string().into()
     }
 
     fn header<'this>(&self) -> Cow<'this, str> {
@@ -36,10 +36,10 @@ pub struct Diff<'a> {
 impl<'a> Diff<'a> {
     pub fn new(file_name: &'a str, name: &'a str, actual: &'a str, excepted: &'a str) -> Self {
         Self {
-            file_name: file_name,
-            name: name,
-            actual: actual,
-            excepted: excepted,
+            file_name,
+            name,
+            actual,
+            excepted,
         }
     }
 }

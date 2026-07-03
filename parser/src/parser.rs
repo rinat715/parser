@@ -1,15 +1,17 @@
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::tag,
-    character::complete::{char, space1, u16, u8},
-    combinator::{map, map_res},
+    character::complete::{char, newline, space1, u8, u16},
+    combinator::map,
     error::ParseError,
     multi::separated_list1,
-    sequence::{pair, preceded, separated_pair, terminated, tuple},
-    IResult, Parser,
+    sequence::{pair, preceded, separated_pair, terminated},
 };
 
-use crate::domain::{self as d, IntOperatorBuilder, StringOperatorBuilder};
+use nom::bytes::complete::take_until1;
+
+use crate::domain::{self as d, Str, StringOperatorBuilder};
 
 // парсеры нельзя клонировать поэтому такая
 fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
@@ -17,25 +19,25 @@ fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
     f1: F,
     f2: F,
     f3: F,
-) -> impl Parser<&'a str, d::SingleOrPair<T>, E>
+) -> impl Parser<&'a str, Output = d::Tuple<T>, Error = E>
 where
-    F: Parser<&'a str, T, E>,
+    F: Parser<&'a str, Output = T, Error = E>,
 {
     alt((
-        map(f1, |value| d::SingleOrPair::Single(value)),
         map(separated_pair(f2, tag(sep), f3), |(f, s)| {
-            d::SingleOrPair::Pair(f, s)
+            d::Tuple::Pair(f, s)
         }),
+        map(f1, |value| d::Tuple::Single(value)),
     ))
 }
 
 pub struct SingleOrPairU16;
 impl SingleOrPairU16 {
-    fn parser(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::SingleOrPair<u16>> {
+    fn parser(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::Tuple<u16>> {
         move |input: &str| single_or_pair(arg, u16, u16, u16).parse(input)
     }
 
-    pub fn sep_colon(s: &str) -> IResult<&str, d::SingleOrPair<u16>> {
+    pub fn sep_colon(s: &str) -> IResult<&str, d::Tuple<u16>> {
         Self::parser(":").parse(s)
     }
 }
@@ -43,18 +45,43 @@ impl SingleOrPairU16 {
 pub fn preceded_tag_space<'a, T, E: ParseError<&'a str>, F>(
     arg: &'static str,
     f: F,
-) -> impl Parser<&'a str, T, E>
+) -> impl Parser<&'a str, Output = T, Error = E>
 where
-    F: Parser<&'a str, T, E>,
+    F: Parser<&'a str, Output = T, Error = E>,
 {
     preceded(pair(tag(arg), space1), f)
 }
 
-pub fn separated_by_comma<'a, T, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, Vec<T>, E>
+pub fn wrap_error_line<'a, T, E: ParseError<&'a str>, F>(
+    f: F,
+) -> impl Parser<&'a str, Output = d::Value<T>, Error = E>
 where
-    F: Parser<&'a str, T, E>,
+    F: Parser<&'a str, Output = T, Error = E>,
+{
+    let err = map(terminated_by_newline(take_until1("\n")), |v| {
+        d::Value::Error(Str::new(v))
+    });
+
+    let value = map(f, |v| d::Value::Value(v));
+    alt((value, err))
+}
+
+pub fn separated_by_comma<'a, T, E: ParseError<&'a str>, F>(
+    f: F,
+) -> impl Parser<&'a str, Output = Vec<T>, Error = E>
+where
+    F: Parser<&'a str, Output = T, Error = E>,
 {
     separated_list1(tag(","), f) // TODO аллоцириет лишний вектор заменить на fold_many1
+}
+
+pub fn terminated_by_newline<'a, F, T, E: ParseError<&'a str>>(
+    f: F,
+) -> impl Parser<&'a str, Output = T, Error = E>
+where
+    F: Parser<&'a str, Output = T, Error = E>,
+{
+    terminated(f, newline)
 }
 
 fn _ip4(input: &str) -> IResult<&str, u8> {
@@ -62,138 +89,105 @@ fn _ip4(input: &str) -> IResult<&str, u8> {
 }
 
 pub fn ip4(input: &str) -> IResult<&str, d::IP> {
-    let parser = tuple((_ip4, _ip4, _ip4, u8));
-
-    map(parser, |res| d::IP::new_ip4(res.0, res.1, res.2, res.3)).parse(input)
-}
-
-pub fn ip4_adresss(input: &str) -> IResult<&str, d::IPAddress> {
-    map_res(pair(terminated(ip4, tag("/")), u8), |(ip, prefix)| {
-        d::IPAddress::new(ip.into(), prefix)
+    map((_ip4, _ip4, _ip4, u8), |res| {
+        d::IP::new_ip4(res.0, res.1, res.2, res.3)
     })
     .parse(input)
 }
 
-pub fn protocol<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, d::Protocol<'a>, E>
-where
-    T: d::BuildOperatorType,
-    F: Parser<&'a str, (T, d::StringOrU16<'a>), E>,
-{
-    map(f, |(operator, value)| {
-        d::Protocol::new(operator.single(), value)
-    })
-}
-
 pub fn tcp_flags<'a, E: ParseError<&'a str>, F, T>(
     f: F,
-) -> impl Parser<&'a str, (d::StringOperator<'a>, d::StringOperator<'a>), E>
+) -> impl Parser<&'a str, Output = (d::FlagOperator, d::FlagOperator), Error = E>
 where
-    T: d::BuildOperatorType,
-    F: Parser<&'a str, (T, (Vec<&'a str>, Vec<&'a str>)), E>,
+    T: Into<bool>,
+    F: Parser<&'a str, Output = (T, (Vec<d::Flag>, Vec<d::Flag>)), Error = E>,
 {
-    map(f, |(operator, value)| {
-        d::tcp_flags(operator.single(), value)
-    })
-}
-
-pub fn dscp<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
-where
-    F: Parser<&'a str, u16, E>,
-{
-    map(f, |value| {
-        IntOperatorBuilder::new(d::OperatorType::EQ).from_value(value)
+    map(f, |(operator, (f, s))| {
+        let values = {
+            if operator.into() {
+                f.into_iter().filter(|x| !s.contains(x)).collect()
+            } else {
+                d::TCP_FLAGS_ALL
+                    .clone()
+                    .into_iter()
+                    .filter(|x| !f.contains(x))
+                    .collect()
+            }
+        };
+        (
+            d::FlagOperator::new(false, values),
+            d::FlagOperator::new(true, s),
+        )
     })
 }
 
 pub fn ctstate<'a, E: ParseError<&'a str>, F, T>(
     f: F,
-) -> impl Parser<&'a str, Vec<d::StringOperator<'a>>, E>
+) -> impl Parser<&'a str, Output = Vec<d::StringOperator>, Error = E>
 where
-    T: d::BuildOperatorType,
-    F: Parser<&'a str, (T, Vec<&'a str>), E>,
+    T: Into<d::generic::Bool>,
+    F: Parser<&'a str, Output = (T, Vec<&'a str>), Error = E>,
 {
     map(f, |(operator, values)| {
-        let builder = StringOperatorBuilder::new(operator.single());
+        let builder = StringOperatorBuilder::new(operator);
         values.iter().map(|v| builder.from_value(v)).collect()
     })
 }
 
-pub fn set<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, d::SetOperator<'a>, E>
+pub fn set<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, Output = d::SetOperator, Error = E>
 where
-    T: d::BuildOperatorType,
-    F: Parser<&'a str, (T, &'a str, Vec<&'a str>), E>,
+    T: Into<d::generic::Bool>,
+    F: Parser<&'a str, Output = (T, &'a str, Vec<Str>), Error = E>,
 {
     map(f, |(operator, set, flags)| {
-        d::SetOperator::new(operator.single(), set, flags)
+        d::SetOperator::new(operator, set, flags)
     })
 }
 
-pub enum Interface<'a> {
-    Value(&'a str),
-    Mask(&'a str),
-}
-
-pub fn interface<'a, T>(
-    operator: d::OperatorType,
-    values: Vec<Interface<'a>>,
-    normalizator: &T,
-) -> Vec<d::StringOperator<'a>>
+pub fn port_many<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, Output = Vec<d::PortOperator>, Error = E>
 where
-    T: d::Normalizator<Arg = &'a str, Result = Vec<&'a str>>,
+    T: Into<bool> + Clone,
+    F: Parser<&'a str, Output = (T, Vec<d::Tuple<u16>>), Error = E>,
 {
-    let mut res = vec![];
-    for value in values {
-        match value {
-            Interface::Value(v) => res.push(d::StringOperator::new(operator.clone(), vec![v])),
-            Interface::Mask(v) => {
-                res.extend(
-                    normalizator
-                        .normalize(&v)
-                        .iter()
-                        .map(|v| d::StringOperator::new(operator.clone(), vec![v]))
-                        .collect::<Vec<d::StringOperator>>(),
-                );
-            }
-        }
-    }
-    res
+    map(f, |(operator, values)| {
+        values
+            .into_iter()
+            .map(|i| d::PortOperator::new(operator.clone(), i))
+            .collect()
+    })
 }
 
-pub struct IntOperator;
-impl IntOperator {
-    pub fn parser1<'a, E: ParseError<&'a str>, F>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
-    where
-        F: Parser<&'a str, (d::OperatorType, u16), E>,
-    {
-        map(f, |(operator, value)| {
-            d::IntOperator::new(operator, vec![value])
-        })
-    }
+pub fn packet_length<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, Output = d::PacketLength, Error = E>
+where
+    T: Into<bool> + Into<bool>,
+    F: Parser<&'a str, Output = (T, d::Tuple<u16>), Error = E>,
+{
+    map(f, |(operator, value)| d::PacketLength::new(operator, value))
+}
 
-    pub fn parser<'a, E: ParseError<&'a str>, F, T>(f: F) -> impl Parser<&'a str, d::IntOperator, E>
-    where
-        T: d::BuildOperatorType,
-        F: Parser<&'a str, (T, d::SingleOrPair<u16>), E>,
-    {
-        map(f, |(operator, value)| {
-            d::IntOperatorBuilder::from_build_operator_type(operator, value)
-        })
-    }
+pub fn ttl<'a, E: ParseError<&'a str>, F, T>(
+    f: F,
+) -> impl Parser<&'a str, Output = d::TTL, Error = E>
+where
+    T: Into<d::TTLOperatorType>,
+    F: Parser<&'a str, Output = (T, u8), Error = E>,
+{
+    map(f, |(operator, value)| d::TTL::new(operator, value))
+}
 
-    pub fn parser_many<'a, E: ParseError<&'a str>, F, T>(
-        f: F,
-    ) -> impl Parser<&'a str, Vec<d::IntOperator>, E>
-    where
-        T: d::BuildOperatorType + Clone,
-        F: Parser<&'a str, (T, Vec<d::SingleOrPair<u16>>), E>,
-    {
-        map(f, |(operator, values)| {
-            values
-                .into_iter()
-                .map(|i| d::IntOperatorBuilder::from_build_operator_type(operator.clone(), i))
-                .collect()
-        })
-    }
+pub fn dscp<'a, E: ParseError<&'a str>, F>(
+    f: F,
+) -> impl Parser<&'a str, Output = d::DSCP, Error = E>
+where
+    F: Parser<&'a str, Output = (d::DSCPOperatorType, u8), Error = E>,
+{
+    map(f, |(operator, value)| d::DSCP::new(operator, value))
 }
 
 #[cfg(test)]
@@ -201,21 +195,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ip4_adresss() {
-        let (remain, res) = ip4_adresss("192.168.0.1/32").unwrap();
+    fn test_pair() {
+        let (remain, res) = SingleOrPairU16::sep_colon("300:400").unwrap();
         assert_eq!(remain, "");
-        assert_eq!(
-            "Prefix = 32
+        if let d::Tuple::Pair(v1, v2) = res {
+            assert_eq!(v1, 300);
+            assert_eq!(v2, 400)
+        }
+    }
 
-[Address]
-Address = \"192.168.0.1\"
-Version = 4
+    #[test]
+    fn test_separated_by_comma() {
+        let mut ports = separated_by_comma(SingleOrPairU16::sep_colon);
+        let (remain, res) = ports.parse("22,23").unwrap();
+        assert_eq!(remain, "");
+        let f = &res[0];
+        if let d::Tuple::Single(v) = f {
+            assert_eq!(*v, 22)
+        }
 
-[NetworkID]
-Address = \"192.168.0.1\"
-Version = 4
-",
-            toml::to_string(&res).unwrap()
-        )
+
+        let f = &res[1];
+        if let d::Tuple::Single(v) = f {
+            assert_eq!(*v, 23)
+        }
     }
 }

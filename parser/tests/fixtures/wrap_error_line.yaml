@@ -1,0 +1,11 @@
+test_1:
+  input: "a"
+  remaining: ""
+  expected: a
+
+test_3:
+  input: |
+    error
+    a
+  remaining: "a\n"
+  expected: error   

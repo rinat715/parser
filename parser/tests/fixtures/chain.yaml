@@ -1,0 +1,25 @@
+test_1:
+  input: |
+    :INPUT ACCEPT [0:0]
+    :FORWARD ACCEPT [0:0]
+    :OUTPUT ACCEPT [180704:11043126]
+    :MY_CHAIN - [0:0]
+  remaining: ":MY_CHAIN - [0:0]\n"
+  expected: 
+    - - INPUT
+      - ACCEPT
+    - - FORWARD
+      - ACCEPT
+    - - OUTPUT
+      - ACCEPT
+test_2:
+  input: |
+    :PREROUTING ACCEPT [346949:21202564]
+    :OUTPUT ACCEPT [346949:21202564]
+    -A OUTPUT -p icmp -j DROP
+  remaining: "-A OUTPUT -p icmp -j DROP\n"
+  expected:
+    - - PREROUTING
+      - ACCEPT
+    - - OUTPUT
+      - ACCEPT

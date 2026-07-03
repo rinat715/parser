@@ -19,15 +19,13 @@ impl Attr {
         if filtred.is_empty() {
             return Self::default();
         }
-        
+
         let extend_fields = Self::extend_fields(&filtred).unwrap_or_default();
         let rename = extend_fields
             .first()
-            .and_then(|v| v.0.clone().get_ident().and_then(|v| Some(v.clone()))); // TODO валидировать rename
+            .and_then(|v| v.0.clone().get_ident().cloned()); // TODO валидировать rename
 
-        Self {
-            rename,
-        }
+        Self { rename }
     }
 
     fn extend_fields(attribs: &[&syn::Attribute]) -> Result<Vec<ParsedTokenEntry>> {
@@ -37,20 +35,13 @@ impl Attr {
             let nested = item.parse_args_with(Punctuated::<Meta, Token![=]>::parse_terminated)?;
 
             for attr_inner in nested {
-                match attr_inner {
-                    Meta::NameValue(v) => match v.value {
-                        syn::Expr::Path(inner) => {
-                            result.push(ParsedTokenEntry(
-                                inner.path,
-                            ));
-                        }
-                        _ => (),
-                    },
-                    _ => (), // TODO
+                if let Meta::NameValue(v) = attr_inner {
+                    if let syn::Expr::Path(inner) = v.value {
+                        result.push(ParsedTokenEntry(inner.path));
+                    }
                 }
             }
         }
         Ok(result)
     }
 }
-

@@ -1,0 +1,276 @@
+test_1:
+  input: |
+    *filter
+    :INPUT ACCEPT [0:0]
+    :FORWARD ACCEPT [0:0]
+    :OUTPUT ACCEPT [180704:11043126]
+    :MY_CHAIN - [0:0]
+    -A FORWARD -s 192.168.30.0/24 -i eth0,mgmt -o swp3 -p tcp -m tcp --dport 22 -m multiport --sports 300:400
+    COMMIT
+  remaining: ""
+  expected:
+    - name: filter
+      chains:
+        - name: FORWARD
+          default_action: ACCEPT
+          rules:
+            - LineNumber: 1
+              Raw: -A FORWARD -s 192.168.30.0/24 -i eth0,mgmt -o swp3 -p tcp -m tcp --dport 22 -m multiport --sports 300:400
+              Status: true
+              Protocol:
+                - ProtocolNumber:
+                    Operator: eq
+                    Values:
+                      - 6
+                  TCPUDPOptions:
+                    SourcePorts:
+                      - Operator: range
+                        Values:
+                          - 300
+                          - 400
+                    DestinationPorts:
+                      - Operator: eq
+                        Values:
+                          - 22
+                    Flags: []
+              NormalizedProtocol:
+                - ProtocolNumber:
+                    Operator: eq
+                    Values:
+                      - 6
+                  TCPUDPOptions:
+                    SourcePorts:
+                      - Operator: range
+                        Values:
+                          - 300
+                          - 400
+                    DestinationPorts:
+                      - Operator: eq
+                        Values:
+                          - 22
+                    Flags: []
+              Source:
+                - Address:
+                    Operator: eq
+                    Values:
+                      - Address:
+                          Address: 192.168.30.0
+                          Version: 4
+                        NetworkID:
+                          Address: 192.168.30.0
+                          Version: 4
+                        Prefix: 24
+              NormalizedSource:
+                - Operator: eq
+                  Values:
+                    - Address:
+                        Address: 192.168.30.0
+                        Version: 4
+                      NetworkID:
+                        Address: 192.168.30.0
+                        Version: 4
+                      Prefix: 24
+              Destination: []
+              NormalizedDestination: []
+              ActionModifiers: []
+              Action:
+                - Action: PASS
+              NormalizedAction: PASS
+              InterfaceIn:
+                - Operator: eq
+                  Values:
+                    - eth0
+                - Operator: eq
+                  Values:
+                    - mgmt
+              NormalizedInterfaceIn:
+                - eth0
+                - mgmt
+              InterfaceOut:
+                - Operator: eq
+                  Values:
+                    - swp3
+              NormalizedInterfaceOut:
+                - swp3
+              ConnectionStates: []
+              Sets: []
+        - name: INPUT
+          default_action: ACCEPT
+          rules: []
+        - name: MY_CHAIN
+          default_action: return
+          rules: []
+        - name: OUTPUT
+          default_action: ACCEPT
+          rules: []
+test_2:
+  input: |
+    *filter
+    :INPUT ACCEPT [0:0]
+    :FORWARD ACCEPT [0:0]
+    :OUTPUT ACCEPT [180704:11043126]
+    :MY_CHAIN - [0:0]
+    -A FORWARD -s 192.168.30.0/24 -i eth0,mgmt -o swp3 -p tcp -m tcp --dport 22 -m multiport --sports 300:400
+    -A OUTPUT -s 192.168.0.1/32 -d 100.100.100.0/24 -p icmp -m icmp --icmp-type 3/0
+    COMMIT
+  remaining: ""
+  expected:
+    - name: filter
+      chains:
+        - name: FORWARD
+          default_action: ACCEPT
+          rules:
+            - LineNumber: 1
+              Raw: -A FORWARD -s 192.168.30.0/24 -i eth0,mgmt -o swp3 -p tcp -m tcp --dport 22 -m multiport --sports 300:400
+              Status: true
+              Protocol:
+                - ProtocolNumber:
+                    Operator: eq
+                    Values:
+                      - 6
+                  TCPUDPOptions:
+                    SourcePorts:
+                      - Operator: range
+                        Values:
+                          - 300
+                          - 400
+                    DestinationPorts:
+                      - Operator: eq
+                        Values:
+                          - 22
+                    Flags: []
+              NormalizedProtocol:
+                - ProtocolNumber:
+                    Operator: eq
+                    Values:
+                      - 6
+                  TCPUDPOptions:
+                    SourcePorts:
+                      - Operator: range
+                        Values:
+                          - 300
+                          - 400
+                    DestinationPorts:
+                      - Operator: eq
+                        Values:
+                          - 22
+                    Flags: []
+              Source:
+                - Address:
+                    Operator: eq
+                    Values:
+                      - Address:
+                          Address: 192.168.30.0
+                          Version: 4
+                        NetworkID:
+                          Address: 192.168.30.0
+                          Version: 4
+                        Prefix: 24
+              NormalizedSource:
+                - Operator: eq
+                  Values:
+                    - Address:
+                        Address: 192.168.30.0
+                        Version: 4
+                      NetworkID:
+                        Address: 192.168.30.0
+                        Version: 4
+                      Prefix: 24
+              Destination: []
+              NormalizedDestination: []
+              ActionModifiers: []
+              Action:
+                - Action: PASS
+              NormalizedAction: PASS
+              InterfaceIn:
+                - Operator: eq
+                  Values:
+                    - eth0
+                - Operator: eq
+                  Values:
+                    - mgmt
+              NormalizedInterfaceIn:
+                - eth0
+                - mgmt
+              InterfaceOut:
+                - Operator: eq
+                  Values:
+                    - swp3
+              NormalizedInterfaceOut:
+                - swp3
+              ConnectionStates: []
+              Sets: []
+        - name: INPUT
+          default_action: ACCEPT
+          rules: []
+        - name: MY_CHAIN
+          default_action: return
+          rules: []
+        - name: OUTPUT
+          default_action: ACCEPT
+          rules:
+            - LineNumber: 1
+              Raw: -A OUTPUT -s 192.168.0.1/32 -d 100.100.100.0/24 -p icmp -m icmp --icmp-type 3/0
+              Status: true
+              Protocol:
+                - Protocol:
+                    Operator: eq
+                    Values:
+                      - icmp
+              NormalizedProtocol:
+                - Protocol:
+                    Operator: eq
+                    Values:
+                      - icmp
+              Source:
+                - Address:
+                    Operator: eq
+                    Values:
+                      - Address:
+                          Address: 192.168.0.1
+                          Version: 4
+                        NetworkID:
+                          Address: 192.168.0.1
+                          Version: 4
+                        Prefix: 32
+              NormalizedSource:
+                - Operator: eq
+                  Values:
+                    - Address:
+                        Address: 192.168.0.1
+                        Version: 4
+                      NetworkID:
+                        Address: 192.168.0.1
+                        Version: 4
+                      Prefix: 32
+              Destination:
+                - Address:
+                    Operator: eq
+                    Values:
+                      - Address:
+                          Address: 100.100.100.0
+                          Version: 4
+                        NetworkID:
+                          Address: 100.100.100.0
+                          Version: 4
+                        Prefix: 24
+              NormalizedDestination:
+                - Operator: eq
+                  Values:
+                    - Address:
+                        Address: 100.100.100.0
+                        Version: 4
+                      NetworkID:
+                        Address: 100.100.100.0
+                        Version: 4
+                      Prefix: 24
+              ActionModifiers: []
+              Action:
+                - Action: PASS
+              NormalizedAction: PASS
+              InterfaceIn: []
+              NormalizedInterfaceIn: []
+              InterfaceOut: []
+              NormalizedInterfaceOut: []
+              ConnectionStates: []
+              Sets: []

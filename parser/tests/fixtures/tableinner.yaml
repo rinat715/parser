@@ -1,0 +1,19 @@
+test_1:
+  input: |
+    *raw
+    :PREROUTING ACCEPT [346949:21202564]
+    :OUTPUT ACCEPT [346949:21202564]
+    -A OUTPUT -p icmp -j DROP
+    COMMIT
+  remaining: ""
+  expected: 
+  - name: raw
+    chains:
+    - name: OUTPUT 
+      default_action: ACCEPT
+      rules: []
+    - name: PREROUTING
+      default_action: ACCEPT
+      rules: []
+  - |
+    -A OUTPUT -p icmp -j DROP

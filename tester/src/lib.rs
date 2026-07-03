@@ -62,19 +62,17 @@ impl TestSuit {
                 }
 
             }
+        } else if self.expected.is_str() {
+            let expected = self.expected.as_str(); // TODO обрабтывать ошибку
+            quote! {
+                assert_eq!(#expected,  result,  "{}", diff::Diff::new(#file_name, #name, result, #expected));
+            }
         } else {
-            if self.expected.is_str() {
-                let expected = self.expected.as_str(); // TODO обрабтывать ошибку
-                quote! {
-                    assert_eq!(#expected,  result,  "{}", diff::Diff::new(#file_name, #name, result, #expected));
-                }
-            } else {
-                let expected_str = toml::to_string(&self.expected).unwrap(); // TODO обрабтывать ошибку
-                let expected = expected_str.as_str();
-                quote! {
-                    let actual = toml::to_string(&result).unwrap();
-                    assert_eq!(#expected,  toml::to_string(&result).unwrap(), "{}", diff::Diff::new(#file_name, #name, actual.as_str(), #expected));
-                }
+            let expected_str = toml::to_string(&self.expected).unwrap(); // TODO обрабтывать ошибку
+            let expected = expected_str.as_str();
+            quote! {
+                let actual = toml::to_string(&result).unwrap();
+                assert_eq!(#expected,  toml::to_string(&result).unwrap(), "{}", diff::Diff::new(#file_name, #name, actual.as_str(), #expected));
             }
         }
     }
@@ -175,7 +173,7 @@ pub fn tester(
         println!("Run {}", test_name);
 
         let test: TestSuit = value.try_into().unwrap();
-        vec.push(test.build_test(&func.sig.ident, test_name.as_str(), &*file_path));
+        vec.push(test.build_test(&func.sig.ident, test_name.as_str(), &file_path));
     }
 
     let res_res = quote! {

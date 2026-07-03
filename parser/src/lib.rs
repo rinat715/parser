@@ -3,7 +3,6 @@ mod nftables;
 mod parser;
 mod test;
 
-use domain::nftables::ACLRule;
 use serde_derive::Serialize;
 
 use pyo3::prelude::*;
@@ -11,29 +10,37 @@ use pyo3::prelude::*;
 #[macro_use]
 extern crate log;
 
-use nftables::rule;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::domain::nftables::Table;
 
 #[pyclass]
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Context {
-    pub interfaces: Vec<String>,
-    pub user_chains: Vec<String>,
+    pub interfaces: Vec<String>,       // TODO tp_traverse?
+    pub user_chain_names: Vec<String>, // TODO tp_traverse?
 }
 
 #[pymethods]
 impl Context {
     #[new]
-    pub fn new(interfaces: Vec<String>, user_chains: Vec<String>) -> Self {
+    pub fn new(interfaces: Vec<String>, user_chain_names: Vec<String>) -> Self {
         Self {
-            interfaces: interfaces,
-            user_chains: user_chains,
+            interfaces,
+            user_chain_names,
         }
+    }
+
+    fn set(&mut self, user_chain_names: Vec<String>) {
+        self.user_chain_names = user_chain_names
     }
 }
 
 #[pyfunction]
-fn get<'a>(input: &'a str, context: &'a Context) -> PyResult<ACLRule<'a>> {
-    let (_, rules) = rule(input, &context.user_chains, &context.interfaces).unwrap();
+fn get<'a>(input: &'a str, context: &'a Context) -> PyResult<Vec<Table>> {
+    let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context.clone()));
+    let (_, rules) = nftables::tables(&ctx)(input).unwrap();
 
     Ok(rules)
 }
@@ -45,29 +52,3 @@ fn parser_rust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Context>()?;
     Ok(())
 }
-
-#[cfg(python_required)]
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pyo3::types::PyDict;
-    use pyo3::Python;
-    use pyo3::{IntoPy};
-    use pyo3::py_run;
-    
-    #[test]
-    fn test_parser_rust() {
-        Python::with_gil(|py| {
-            let interfaces = vec![String::from("swp1"), String::from("swp2")];
-            let user_chains = vec![String::from("MY_CHAIN")];
-            let context = Context::new(interfaces, user_chains);
-            let res = get("-A INPUT -j DROP -i swp+ -o swp1", &context).unwrap();
-            let obj = res.into_py(py);
-            let dict:  &PyDict  = obj.extract(py).unwrap();
-            py_run!(py, dict, r#"
-            assert str(dict) == "{'protocol': {'protocol': {'operator': 'EQ', 'values': ['ip']}, 'tcp_udp_options': None, 'icmp_options': None}, 'action_modifiers': [], 'action': [{'operator': 'DROP', 'values': ''}], 'normalized_action': 'DENY', 'interface_in': [], 'normalized_interface_in': [], 'interface_out': [{'operator': 'EQ', 'values': ['swp']}], 'normalized_interface_out': ['swp'], 'ConnectionStates': [], 'Sets': []}"
-            "#);
-        });
-    }
-}
-

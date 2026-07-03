@@ -1,10 +1,15 @@
 use std::convert::{From, Into};
 use std::net::{IpAddr, Ipv4Addr};
 
-use ipnet::{IpNet, PrefixLenError};
+use ipnet::IpNet;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-#[derive(Debug, PartialEq)]
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
+
+use crate::domain::pythonize::tuple;
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct IP(IpAddr);
 
 impl IP {
@@ -39,12 +44,11 @@ impl From<IpAddr> for IP {
     }
 }
 
-impl Into<IpAddr> for IP {
-    fn into(self) -> IpAddr {
-        self.0
+impl From<IP> for IpAddr {
+    fn from(val: IP) -> Self {
+        val.0
     }
 }
-
 
 #[derive(Clone)]
 pub struct IPAddress(IpNet);
@@ -53,11 +57,6 @@ impl IPAddress {
     pub fn new_assert(ip: IP, prefix_len: u8) -> Self {
         let ip = IpNet::new_assert(ip.into(), prefix_len);
         Self(ip)
-    }
-
-    pub fn new(ip: IpAddr, prefix_len: u8) -> Result<Self, PrefixLenError> {
-        let ip = IpNet::new(ip, prefix_len)?;
-         Ok(Self(ip))
     }
 }
 
@@ -77,5 +76,21 @@ impl Serialize for IPAddress {
         map.serialize_entry("Prefix", &prefix)?;
 
         map.end()
+    }
+}
+
+impl<'a> IntoPy<PyObject> for IPAddress {
+    fn into_py(self, py: Python) -> PyObject {
+
+        let l = PyList::new(
+            py,
+            &[
+                tuple(py, "Address", self.0.addr().to_string()),
+                tuple(py, "NetworkID", self.0.network().to_string()),
+                tuple(py, "Prefix", self.0.prefix_len()),
+            ],
+        );
+        let dict = PyDict::from_sequence(py, l.into()).unwrap_or(PyDict::new(py));
+        dict.into_py(py) // Py_INCREF
     }
 }

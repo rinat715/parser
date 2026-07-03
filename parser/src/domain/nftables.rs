@@ -1,39 +1,53 @@
-use crate::domain::{self as d};
-use macros::is_not_null;
-use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString};
+use crate::domain::generic::Bool;
+use crate::domain::{self as d, Str};
+use crate::nftables::RawACLRule;
+use macros::{ToDict, ToPyDict, ToSerialzeMap, ToStr, is_not_null};
 use serde_derive::Serialize;
+use std::collections::BTreeMap;
 use std::str::FromStr;
+
+use serde::{Serializer, ser::SerializeSeq};
 
 #[derive(Debug)]
 pub struct ConvertError; // TODO нормальное название
 
-#[derive(Default, Serialize, Clone)]
+#[derive(Default, ToStr, Clone, PartialEq, Debug)]
 pub enum ActionType {
+    #[serialize(rename = "ACCEPT")]
     ACCEPT,
+    #[serialize(rename = "GOTO")]
     GOTO,
+    #[serialize(rename = "REJECT")]
     REJECT,
+    #[serialize(rename = "QUEUE")]
     QUEUE,
+    #[serialize(rename = "DROP")]
     DROP,
+    #[serialize(rename = "RETURN")]
     RETURN,
+    #[serialize(rename = "LOG")]
     LOG,
+    #[serialize(rename = "NFLOG")]
     NFLOG,
+    #[serialize(rename = "JUMP")]
     JUMP,
+    #[serialize(rename = "PASS")]
     #[default]
     PASS,
-    #[serde(rename = "log-level")]
+    #[serialize(rename = "log-level")]
     LogLevel,
-    #[serde(rename = "log-prefix")]
+    #[serialize(rename = "log-prefix")]
     LogPrefix,
-    #[serde(rename = "log-tcp-sequence")]
+    #[serialize(rename = "log-tcp-sequence")]
     LogTCPSequence,
-    #[serde(rename = "log-tcp-options")]
+    #[serialize(rename = "log-tcp-options")]
     LogTCPOptions,
-    #[serde(rename = "log-ip-options")]
+    #[serialize(rename = "log-ip-options")]
     LogIPOptions,
-    #[serde(rename = "log-uid")]
+    #[serialize(rename = "log-uid")]
     LogUID,
 }
+
 
 impl FromStr for ActionType {
     type Err = ConvertError; // TODO
@@ -77,33 +91,33 @@ impl TryInto<d::NormalizedAction> for ActionType {
     }
 }
 
-impl IntoPy<PyObject> for ActionType {
-    fn into_py(self, py: Python) -> PyObject {
-        let res = match self {
-            Self::ACCEPT => PyString::new(py, "ACCEPT"),
-            Self::DROP => PyString::new(py, "DROP"),
-            Self::LOG => PyString::new(py, "LOG"),
-            Self::NFLOG => PyString::new(py, "NFLOG"),
-            Self::QUEUE => PyString::new(py, "QUEUE"),
-            Self::REJECT => PyString::new(py, "REJECT"),
-            Self::RETURN => PyString::new(py, "RETURN"),
-            Self::GOTO => PyString::new(py, "GOTO"),
-            Self::JUMP => PyString::new(py, "JUMP"),
-            Self::PASS => PyString::new(py, "PASS"),
-            Self::LogLevel => PyString::new(py, "log-level"),
-            Self::LogPrefix => PyString::new(py, "log-prefix"),
-            Self::LogTCPSequence => PyString::new(py, "log-tcp-sequence"),
-            Self::LogTCPOptions => PyString::new(py, "log-tcp-options"),
-            Self::LogIPOptions => PyString::new(py, "log-ip-options"),
-            Self::LogUID => PyString::new(py, "log-uid"),
-        };
-        res.into_py(py)
-    }
-}
-
 pub static EXCLAMATION: &str = "!";
 
 pub type OperatorType = d::OperatorTypeGeneric<Option<&'static str>>;
+
+impl From<OperatorType> for bool {
+    fn from(val: OperatorType) -> Self {
+        val.0.is_none()
+    }
+}
+
+impl From<OperatorType> for d::generic::Bool {
+    fn from(val: OperatorType) -> Self {
+        match val.0 {
+            Some(_) => d::generic::Bool(false),
+            None => d::generic::Bool(true),
+        }
+    }
+}
+
+impl From<OperatorType> for d::FragmentOperatorType {
+    fn from(val: OperatorType) -> Self {
+        match val.0 {
+            Some(_) => d::FragmentOperatorType::MatchAny,
+            None => d::FragmentOperatorType::GT,
+        }
+    }
+}
 
 impl Default for OperatorType {
     fn default() -> Self {
@@ -115,79 +129,139 @@ impl OperatorType {
     pub fn new(value: Option<&'static str>) -> Self {
         Self(value)
     }
-
-    pub fn fragment_operator(&self) -> d::IntOperator {
-        match self.0 {
-            Some(_) => d::IntOperator::new(d::OperatorType::MatchAny, vec![0, 1]),
-            None => d::IntOperator::new(d::OperatorType::GT, vec![1]),
-        }
-    }
 }
 
-impl crate::domain::BuildOperatorType for OperatorType {
-    fn single(&self) -> crate::domain::OperatorType {
-        match self.0 {
-            Some(_) => crate::domain::OperatorType::NEQ,
-            None => crate::domain::OperatorType::EQ,
-        }
-    }
-
-    fn range(&self) -> crate::domain::OperatorType {
-        match self.0 {
-            Some(_) => crate::domain::OperatorType::NotRange,
-            None => crate::domain::OperatorType::RANGE,
-        }
-    }
-}
 
 #[derive(Serialize, Default)]
 #[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
-pub struct Vendor<'a> {
+pub struct NATExtended<'a> {
     #[serde(skip_serializing_if = "d::is_empty")]
-    connection_states: Vec<d::StringOperator<'a>>,
+    connection_states: Vec<d::StringOperator>,
     #[serde(skip_serializing_if = "d::is_empty")]
-    sets: Vec<d::SetOperator<'a>>,
+    sets: Vec<d::SetOperator>,
+    network_mapped_translated_address: Option<d::IPOperator>,
+    target: Option<&'a str>,
 }
 
-impl<'a> Vendor<'a> {
+impl<'a> NATExtended<'a> {
     #[is_not_null(all)]
     pub fn new(
-        connection_states: Vec<d::StringOperator<'a>>,
-        sets: Vec<d::SetOperator<'a>>,
+        connection_states: Vec<d::StringOperator>,
+        sets: Vec<d::SetOperator>,
+        network_mapped_translated_address: Option<d::IPOperator>,
+        target: Option<&'a str>,
     ) -> Option<Self> {
         Some(Self {
-            connection_states: connection_states,
-            sets: sets,
+            connection_states,
+            sets,
+            network_mapped_translated_address,
+            target,
         })
     }
+}
 
-    pub fn extend_connection_states(&mut self, values: Vec<d::StringOperator<'a>>) {
-        self.connection_states.extend(values);
-    }
+#[derive(ToDict, ToSerialzeMap)]
+pub struct ACLExtended {
+    #[serialize(rename = "ConnectionStates")]
+    connection_states: Vec<d::StringOperator>,
+    #[serialize(rename = "Sets")]
+    sets: Vec<d::SetOperator>,
+}
 
-    pub fn add_set(&mut self, value: d::SetOperator<'a>) {
-        self.sets.push(value);
-    }
-
-    pub fn build(self) -> Option<Self> {
-        Self::new(self.connection_states, self.sets)
+impl ACLExtended {
+    pub fn new(connection_states: Vec<d::StringOperator>, sets: Vec<d::SetOperator>) -> Self {
+        Self {
+            connection_states,
+            sets,
+        }
     }
 }
 
-impl<'a> IntoPy<PyObject> for Vendor<'a> {
-    fn into_py(self, py: Python) -> PyObject {
-        let l = PyList::new(
-            py,
-            &[
-                ("ConnectionStates", self.connection_states.into_py(py)),
-                ("Sets", self.sets.into_py(py)),
-            ],
-        );
-        let dict = PyDict::from_sequence(py, l.into()).unwrap();
-        dict.into_py(py) // Py_INCREF
+pub type ActionSetting = d::ActionSetting<ActionType>;
+
+pub type ACLRule = d::ACLRule<d::ACL<ActionType>, ACLExtended>;
+
+pub type UserChain = Str;
+pub type ChainName = Str;
+pub type DefaultAction = Str;
+
+#[derive(Serialize, ToPyDict)]
+pub struct Chain {
+    name: ChainName,
+    default_action: DefaultAction,
+    rules: Vec<d::nftables::ACLRule>,
+}
+
+impl Chain {
+    pub fn new(name: Str, default_action: Str) -> Self {
+        Self {
+            name,
+            default_action,
+            rules: vec![],
+        }
     }
 }
 
-pub type ActionSetting<'a> = d::ActionSetting<'a, ActionType>;
+fn to_list<S>(map: &BTreeMap<Str, Chain>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut seq = serializer.serialize_seq(Some(map.len()))?;
+    for element in map.values() {
+        seq.serialize_element(element)?;
+    }
+    seq.end()
+}
 
-pub type ACLRule<'a> = d::Rule<'a, d::ACL<'a, ActionType>, Vendor<'a>>;
+#[derive(Serialize, ToPyDict)]
+pub struct Table {
+    name: Str,
+    #[serde(rename = "chains", serialize_with = "to_list")]
+    chain_map: BTreeMap<Str, Chain>,
+}
+
+impl Table {
+    pub fn new(name: &str) -> Self {
+        let chain_map = BTreeMap::new();
+        let name = Str::new(name);
+
+        Self { name, chain_map }
+    }
+
+    pub fn set_chain_map(&mut self, value: BTreeMap<Str, Chain>) {
+        self.chain_map = value
+    }
+
+    pub fn set_chain(&mut self, name: Str, default_action: Str) -> std::option::Option<Chain> {
+        self.chain_map
+            .insert(name.clone(), Chain::new(name, default_action))
+    }
+
+    pub fn process_user_chain(&mut self, values: Vec<(UserChain, DefaultAction)>) -> Vec<String> {
+        let mut user_chain_names = Vec::with_capacity(values.len());
+        for item in values {
+            let _ = self.set_chain(item.0.clone(), item.1);
+            user_chain_names.push(item.0.as_str().to_string());
+        }
+
+        user_chain_names
+    }
+    // cтомость перемeщения вектора
+    // For Vec<Bar>, that type is a (growable) vector on the heap. The size_of::<Vec<Bar>>() on the other hand is always just 3 * size_of::<usize>(). So that’s how much a move coss.
+    pub fn set_rule(&mut self, mut rule: RawACLRule) {
+        if let Some(v) = self.chain_map.get_mut(&rule.chain) {
+            rule.set_status();
+            rule.set_number(v.rules.len() + 1);
+            v.rules.push(rule.build());
+        }
+    }
+
+    pub fn process_ruls(&mut self, values: Vec<d::Value<RawACLRule>>) {
+        for item in values {
+            match item {
+                d::Value::Value(v) => self.set_rule(v),
+                d::Value::Error(v) => println!("Error in table part {}", v.as_str()),
+            };
+        }
+    }
+}

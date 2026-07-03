@@ -1,0 +1,1136 @@
+test_1:
+  input: "-A INPUT -g TEST --ctstate RELATED,ESTABLISHED\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -g TEST --ctstate RELATED,ESTABLISHED
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+      - Action: GOTO
+        Option: TEST
+    NormalizedAction: JUMP
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates:
+      - Operator: eq
+        Values:
+          - RELATED
+      - Operator: eq
+        Values:
+          - ESTABLISHED
+    Sets: []
+
+test_3:
+  input: "-A INPUT -j REJECT --reject-with tcp-reset\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -j REJECT --reject-with tcp-reset
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+      - Action: REJECT
+        Option: tcp-reset
+    NormalizedAction: DENY
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_4:
+  input: "-A INPUT -j LOG --log-prefix \"hello guys\"\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -j LOG --log-prefix "hello guys"
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers:
+      - Action: log-level
+        Option: warning
+      - Action: log-prefix
+        Option: '"hello guys"'
+    Action:
+      - Action: LOG
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_5:
+  input: "-A INPUT -j LOG --log-ip-options --log-tcp-sequence --log-tcp-options --log-level debug\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -j LOG --log-ip-options --log-tcp-sequence --log-tcp-options --log-level debug
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers:
+      - Action: log-level
+        Option: debug
+      - Action: log-ip-options
+      - Action: log-tcp-sequence
+      - Action: log-tcp-options
+    Action:
+      - Action: LOG
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_61:
+  input: "-A OUTPUT -s 192.168.0.1/32 -p tcp -m multiport --ports 50:60,300:400\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A OUTPUT -s 192.168.0.1/32 -p tcp -m multiport --ports 50:60,300:400
+    Status: true
+    Protocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 6
+        TCPUDPOptions:
+          SourcePorts:
+            - Operator: range
+              Values:
+                - 50
+                - 60
+            - Operator: range
+              Values:
+                - 300
+                - 400
+          DestinationPorts:
+            - Operator: range
+              Values:
+                - 50
+                - 60
+            - Operator: range
+              Values:
+                - 300
+                - 400
+          Flags: []
+    NormalizedProtocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 6
+        TCPUDPOptions:
+          SourcePorts:
+            - Operator: range
+              Values:
+                - 50
+                - 60
+            - Operator: range
+              Values:
+                - 300
+                - 400
+          DestinationPorts:
+            - Operator: range
+              Values:
+                - 50
+                - 60
+            - Operator: range
+              Values:
+                - 300
+                - 400
+          Flags: []
+    Source:
+      - Address:
+          Operator: eq
+          Values:
+            - Address:
+                Address: 192.168.0.1
+                Version: 4
+              NetworkID:
+                Address: 192.168.0.1
+                Version: 4
+              Prefix: 32
+    NormalizedSource:
+      - Operator: eq
+        Values:
+          - Address:
+              Address: 192.168.0.1
+              Version: 4
+            NetworkID:
+              Address: 192.168.0.1
+              Version: 4
+            Prefix: 32
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+      - Action: PASS
+    NormalizedAction: PASS
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_6:
+  input: "-A INPUT -s 192.168.0.0/16 -d 172.16.255.0/24 -p tcp -m tcp --dports 22,23 -m multiport --sports 300:400 -j MY_CHAIN\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -s 192.168.0.0/16 -d 172.16.255.0/24 -p tcp -m tcp --dports 22,23 -m multiport --sports 300:400 -j MY_CHAIN
+    Status: true
+    Protocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 6
+        TCPUDPOptions:
+          SourcePorts:
+            - Operator: range
+              Values:
+                - 300
+                - 400
+          DestinationPorts:
+            - Operator: eq
+              Values:
+                - 22
+            - Operator: eq
+              Values:
+                - 23
+          Flags: []
+    NormalizedProtocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 6
+        TCPUDPOptions:
+          SourcePorts:
+            - Operator: range
+              Values:
+                - 300
+                - 400
+          DestinationPorts:
+            - Operator: eq
+              Values:
+                - 22
+            - Operator: eq
+              Values:
+                - 23
+          Flags: []
+    Source:
+      - Address:
+          Operator: eq
+          Values:
+            - Address:
+                Address: 192.168.0.0
+                Version: 4
+              NetworkID:
+                Address: 192.168.0.0
+                Version: 4
+              Prefix: 16
+    NormalizedSource:
+      - Operator: eq
+        Values:
+          - Address:
+              Address: 192.168.0.0
+              Version: 4
+            NetworkID:
+              Address: 192.168.0.0
+              Version: 4
+            Prefix: 16
+    Destination:
+      - Address:
+          Operator: eq
+          Values:
+            - Address:
+                Address: 172.16.255.0
+                Version: 4
+              NetworkID:
+                Address: 172.16.255.0
+                Version: 4
+              Prefix: 24
+    NormalizedDestination:
+      - Operator: eq
+        Values:
+          - Address:
+              Address: 172.16.255.0
+              Version: 4
+            NetworkID:
+              Address: 172.16.255.0
+              Version: 4
+            Prefix: 24
+    ActionModifiers: []
+    Action:
+      - Action: JUMP
+        Option: MY_CHAIN
+    NormalizedAction: JUMP
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_7:
+  input: "-A INPUT -j SETCLASS -p udp --ttl-gt 200 -f --dscp 0x20 --length 300 --any-opt\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -j SETCLASS -p udp --ttl-gt 200 -f --dscp 0x20 --length 300 --any-opt
+    Status: true
+    Protocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 17
+        IPv4Options:
+          Fragments:
+            Operator: gt
+            Values:
+              - "1"
+          DSCP:
+            Operator: eq
+            Values:
+              - 32
+          IPProtocolOptions:
+            - Operator: eq
+              Values:
+                - 0
+          TTL:
+            Operator: gt
+            Values:
+              - 200
+          PacketLength:
+            Operator: eq
+            Values:
+              - 300
+    NormalizedProtocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 17
+        IPv4Options:
+          Fragments:
+            Operator: gt
+            Values:
+              - "1"
+          DSCP:
+            Operator: eq
+            Values:
+              - 32
+          IPProtocolOptions:
+            - Operator: eq
+              Values:
+                - 0
+          TTL:
+            Operator: gt
+            Values:
+              - 200
+          PacketLength:
+            Operator: eq
+            Values:
+              - 300
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+      - Action: PASS
+    NormalizedAction: PASS
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_8:
+  input: "-A OUTPUT -p tcp -m multiport --dports 20:24 -m set --match-set BlockedHosts dst,dst -m set --match-set EltexPort22 src,dst -m set --match-set HashNetPort src,src -j DROP\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A OUTPUT -p tcp -m multiport --dports 20:24 -m set --match-set BlockedHosts dst,dst -m set --match-set EltexPort22 src,dst -m set --match-set HashNetPort src,src -j DROP
+    Status: true
+    Protocol:
+    - ProtocolNumber:
+        Operator: eq
+        Values:
+        - 6
+      TCPUDPOptions:
+        SourcePorts: []
+        DestinationPorts:
+        - Operator: range
+          Values:
+          - 20
+          - 24
+        Flags: []
+    NormalizedProtocol:
+    - ProtocolNumber:
+        Operator: eq
+        Values:
+        - 6
+      TCPUDPOptions:
+        SourcePorts: []
+        DestinationPorts:
+        - Operator: range
+          Values:
+          - 20
+          - 24
+        Flags: []
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+    - Action: DROP
+    NormalizedAction: DENY
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets:
+    - Operator: eq
+      Set: BlockedHosts
+      Flags:
+      - dst
+      - dst
+    - Operator: eq
+      Set: EltexPort22
+      Flags:
+      - src
+      - dst
+    - Operator: eq
+      Set: HashNetPort
+      Flags:
+      - src
+      - src
+
+test_9:
+  input: "-A check_ours -j RETURN --log-prefix \"BG \" 123\"\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A check_ours -j RETURN --log-prefix "BG " 123"
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers:
+      - Action: log-prefix
+        Option: '"BG " 123"'
+    Action:
+      - Action: RETURN
+    NormalizedAction: RETURN
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_10:
+  input: "-A INPUT ! -s 10.0.0.4/32 -p icmp -j DROP\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT ! -s 10.0.0.4/32 -p icmp -j DROP
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - icmp
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - icmp
+    Source:
+      - Address:
+          Operator: neq
+          Values:
+            - Address:
+                Address: 10.0.0.4
+                Version: 4
+              NetworkID:
+                Address: 10.0.0.4
+                Version: 4
+              Prefix: 32
+    NormalizedSource:
+      - Operator: neq
+        Values:
+          - Address:
+              Address: 10.0.0.4
+              Version: 4
+            NetworkID:
+              Address: 10.0.0.4
+              Version: 4
+            Prefix: 32
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+      - Action: DROP
+    NormalizedAction: DENY
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_11:
+  input: "-A INPUT -m recent --rcheck --seconds 60 --name DEFAULT --rsource -m limit --limit 10/sec -j LOG --log-prefix \"BG \"\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -m recent --rcheck --seconds 60 --name DEFAULT --rsource -m limit --limit 10/sec -j LOG --log-prefix "BG "
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers:
+      - Action: log-level
+        Option: warning
+      - Action: log-prefix
+        Option: '"BG "'
+    Action:
+      - Action: LOG
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_13:
+  input: "-A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix \"BG \" 123\"\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A check_ours -s 10.134.0.68/32 -m mac --mac-source 00:1D:60:2E:ED:CD -j RETURN --log-prefix "BG " 123"
+    Status: true
+    Protocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    NormalizedProtocol:
+      - Protocol:
+          Operator: eq
+          Values:
+            - ip
+    Source:
+      - Address:
+          Operator: eq
+          Values:
+            - Address:
+                Address: 10.134.0.68
+                Version: 4
+              NetworkID:
+                Address: 10.134.0.68
+                Version: 4
+              Prefix: 32
+    NormalizedSource:
+      - Operator: eq
+        Values:
+          - Address:
+              Address: 10.134.0.68
+              Version: 4
+            NetworkID:
+              Address: 10.134.0.68
+              Version: 4
+            Prefix: 32
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers:
+      - Action: log-prefix
+        Option: '"BG " 123"'
+    Action:
+      - Action: RETURN
+    NormalizedAction: RETURN
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_14:
+  input: "-A INPUT -j SETCLASS -p udp --dport 1 --sport 2 --ports 25 --tcp-flags FIN,SYN,ACK ACK\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -j SETCLASS -p udp --dport 1 --sport 2 --ports 25 --tcp-flags FIN,SYN,ACK ACK
+    Status: true
+    Protocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 17
+        TCPUDPOptions:
+          SourcePorts:
+            - Operator: eq
+              Values:
+                - 2
+            - Operator: eq
+              Values:
+                - 25
+          DestinationPorts:
+            - Operator: eq
+              Values:
+                - 1
+            - Operator: eq
+              Values:
+                - 25
+    NormalizedProtocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 17
+        TCPUDPOptions:
+          SourcePorts:
+            - Operator: eq
+              Values:
+                - 2
+            - Operator: eq
+              Values:
+                - 25
+          DestinationPorts:
+            - Operator: eq
+              Values:
+                - 1
+            - Operator: eq
+              Values:
+                - 25
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+      - Action: PASS
+    NormalizedAction: PASS
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_16:
+  input: "-A INPUT -p tcp -s 10.10.140.0/24 -m conntrack --ctorigsrc 10.10.140.3 --ctorigdst 10.0.0.0/8 --ctorigdstport 80:85 -j ACCEPT\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -p tcp -s 10.10.140.0/24 -m conntrack --ctorigsrc 10.10.140.3 --ctorigdst 10.0.0.0/8 --ctorigdstport 80:85 -j ACCEPT
+    Status: true
+    Protocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 6
+        TCPUDPOptions:
+          SourcePorts: []
+          DestinationPorts:
+            - Operator: range
+              Values:
+                - 80
+                - 85
+          Flags: []
+    NormalizedProtocol:
+      - ProtocolNumber:
+          Operator: eq
+          Values:
+            - 6
+        TCPUDPOptions:
+          SourcePorts: []
+          DestinationPorts:
+            - Operator: range
+              Values:
+                - 80
+                - 85
+          Flags: []
+    Source:
+      - Address:
+          Operator: eq
+          Values:
+            - Address:
+                Address: 10.10.140.0
+                Version: 4
+              NetworkID:
+                Address: 10.10.140.0
+                Version: 4
+              Prefix: 24
+      - Address:
+          Operator: eq
+          Values:
+            - Address:
+                Address: 10.10.140.3
+                Version: 4
+              NetworkID:
+                Address: 10.10.140.3
+                Version: 4
+              Prefix: 32
+    NormalizedSource:
+      - Operator: eq
+        Values:
+          - Address:
+              Address: 10.10.140.0
+              Version: 4
+            NetworkID:
+              Address: 10.10.140.0
+              Version: 4
+            Prefix: 24
+      - Operator: eq
+        Values:
+          - Address:
+              Address: 10.10.140.3
+              Version: 4
+            NetworkID:
+              Address: 10.10.140.3
+              Version: 4
+            Prefix: 32
+    Destination:
+      - Address:
+          Operator: eq
+          Values:
+            - Address:
+                Address: 10.0.0.0
+                Version: 4
+              NetworkID:
+                Address: 10.0.0.0
+                Version: 4
+              Prefix: 8
+    NormalizedDestination:
+      - Operator: eq
+        Values:
+          - Address:
+              Address: 10.0.0.0
+              Version: 4
+            NetworkID:
+              Address: 10.0.0.0
+              Version: 4
+            Prefix: 8
+    ActionModifiers: []
+    Action:
+      - Action: ACCEPT
+    NormalizedAction: PERMIT
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_17:
+  input: "-A INPUT -j DROP -i swp+ -o swp1\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -j DROP -i swp+ -o swp1
+    Status: true
+    Protocol:
+    - Protocol:
+        Operator: eq
+        Values:
+        - ip
+    NormalizedProtocol:
+    - Protocol:
+        Operator: eq
+        Values:
+        - ip
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+    - Action: DROP
+    NormalizedAction: DENY
+    InterfaceIn:
+    - Operator: eq
+      Values:
+      - swp1
+    - Operator: eq
+      Values:
+      - swp2
+    NormalizedInterfaceIn:
+    - swp1
+    - swp2
+    InterfaceOut:
+    - Operator: eq
+      Values:
+      - swp1
+    NormalizedInterfaceOut:
+    - swp1
+    ConnectionStates: []
+    Sets: []
+
+test_19:
+  input: "-A INPUT -s 192.168.30.0/24 -i eth0,mgmt -o swp3 -p tcp -m tcp --dport 22 -m multiport --sports 300:400\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -s 192.168.30.0/24 -i eth0,mgmt -o swp3 -p tcp -m tcp --dport 22 -m multiport --sports 300:400
+    Status: true
+    Protocol:
+    - ProtocolNumber:
+        Operator: eq
+        Values:
+        - 6
+      TCPUDPOptions:
+        SourcePorts:
+        - Operator: range
+          Values:
+          - 300
+          - 400
+        DestinationPorts:
+        - Operator: eq
+          Values:
+          - 22
+        Flags: []
+    NormalizedProtocol:
+    - ProtocolNumber:
+        Operator: eq
+        Values:
+        - 6
+      TCPUDPOptions:
+        SourcePorts:
+        - Operator: range
+          Values:
+          - 300
+          - 400
+        DestinationPorts:
+        - Operator: eq
+          Values:
+          - 22
+        Flags: []
+    Source:
+    - Address:
+        Operator: eq
+        Values:
+        - Address:
+            Address: 192.168.30.0
+            Version: 4
+          NetworkID:
+            Address: 192.168.30.0
+            Version: 4
+          Prefix: 24
+    NormalizedSource:
+    - Operator: eq
+      Values:
+      - Address:
+          Address: 192.168.30.0
+          Version: 4
+        NetworkID:
+          Address: 192.168.30.0
+          Version: 4
+        Prefix: 24
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+    - Action: PASS
+    NormalizedAction: PASS
+    InterfaceIn:
+    - Operator: eq
+      Values:
+      - eth0
+    - Operator: eq
+      Values:
+      - mgmt
+    NormalizedInterfaceIn:
+    - eth0
+    - mgmt
+    InterfaceOut:
+    - Operator: eq
+      Values:
+      - swp3
+    NormalizedInterfaceOut:
+    - swp3
+    ConnectionStates: []
+    Sets: []
+
+test_20:
+  input: "-A OUTPUT -s 192.168.0.1/32 -d 100.100.100.0/24 -p icmp -m iprange --src-range 192.168.0.2-192.168.0.100 ! --dst-range    100.100.100.10-100.100.100.200\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A OUTPUT -s 192.168.0.1/32 -d 100.100.100.0/24 -p icmp -m iprange --src-range 192.168.0.2-192.168.0.100 ! --dst-range    100.100.100.10-100.100.100.200
+    Status: true
+    Protocol:
+    - Protocol:
+        Operator: eq
+        Values:
+        - icmp
+    NormalizedProtocol:
+    - Protocol:
+        Operator: eq
+        Values:
+        - icmp
+    Source:
+    - Address:
+        Operator: eq
+        Values:
+        - Address:
+            Address: 192.168.0.1
+            Version: 4
+          NetworkID:
+            Address: 192.168.0.1
+            Version: 4
+          Prefix: 32
+    - Address:
+        Operator: range
+        Values:
+        - Address:
+            Address: 192.168.0.2
+            Version: 4
+          NetworkID:
+            Address: 192.168.0.2
+            Version: 4
+          Prefix: 32
+        - Address:
+            Address: 192.168.0.100
+            Version: 4
+          NetworkID:
+            Address: 192.168.0.100
+            Version: 4
+          Prefix: 32
+    NormalizedSource:
+    - Operator: eq
+      Values:
+      - Address:
+          Address: 192.168.0.1
+          Version: 4
+        NetworkID:
+          Address: 192.168.0.1
+          Version: 4
+        Prefix: 32
+    - Operator: range
+      Values:
+      - Address:
+          Address: 192.168.0.2
+          Version: 4
+        NetworkID:
+          Address: 192.168.0.2
+          Version: 4
+        Prefix: 32
+      - Address:
+          Address: 192.168.0.100
+          Version: 4
+        NetworkID:
+          Address: 192.168.0.100
+          Version: 4
+        Prefix: 32
+    Destination:
+    - Address:
+        Operator: eq
+        Values:
+        - Address:
+            Address: 100.100.100.0
+            Version: 4
+          NetworkID:
+            Address: 100.100.100.0
+            Version: 4
+          Prefix: 24
+    - Address:
+        Operator: nrange
+        Values:
+        - Address:
+            Address: 100.100.100.10
+            Version: 4
+          NetworkID:
+            Address: 100.100.100.10
+            Version: 4
+          Prefix: 32
+        - Address:
+            Address: 100.100.100.200
+            Version: 4
+          NetworkID:
+            Address: 100.100.100.200
+            Version: 4
+          Prefix: 32
+    NormalizedDestination:
+    - Operator: eq
+      Values:
+      - Address:
+          Address: 100.100.100.0
+          Version: 4
+        NetworkID:
+          Address: 100.100.100.0
+          Version: 4
+        Prefix: 24
+    - Operator: nrange
+      Values:
+      - Address:
+          Address: 100.100.100.10
+          Version: 4
+        NetworkID:
+          Address: 100.100.100.10
+          Version: 4
+        Prefix: 32
+      - Address:
+          Address: 100.100.100.200
+          Version: 4
+        NetworkID:
+          Address: 100.100.100.200
+          Version: 4
+        Prefix: 32
+    ActionModifiers: []
+    Action:
+    - Action: PASS
+    NormalizedAction: PASS
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []
+
+test_21:
+  input: "-A INPUT -p tcp --tcp-flags ALL NONE -j DROP\n"
+  remaining: ""
+  expected:
+    LineNumber: 1
+    Raw: -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
+    Status: true
+    Protocol:
+    - ProtocolNumber:
+        Operator: eq
+        Values:
+        - 6
+      TCPUDPOptions:
+        SourcePorts: []
+        DestinationPorts: []
+        Flags:
+        - Operator: neq
+          Values:
+          - - SYN
+            - ACK
+            - FIN
+            - RST
+            - URG
+            - PSH
+        - Operator: eq
+          Values:
+          - []
+    NormalizedProtocol:
+    - ProtocolNumber:
+        Operator: eq
+        Values:
+        - 6
+      TCPUDPOptions:
+        SourcePorts: []
+        DestinationPorts: []
+        Flags:
+        - Operator: neq
+          Values:
+          - - SYN
+            - ACK
+            - FIN
+            - RST
+            - URG
+            - PSH
+        - Operator: eq
+          Values:
+          - []
+    Source: []
+    NormalizedSource: []
+    Destination: []
+    NormalizedDestination: []
+    ActionModifiers: []
+    Action:
+    - Action: DROP
+    NormalizedAction: DENY
+    InterfaceIn: []
+    NormalizedInterfaceIn: []
+    InterfaceOut: []
+    NormalizedInterfaceOut: []
+    ConnectionStates: []
+    Sets: []

@@ -1,4 +1,0 @@
-[test_1]
-input = "100 deny any any any"
-remaining = "\n"
-expected = "ACL_NAME_3"
