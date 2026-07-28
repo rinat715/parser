@@ -2,16 +2,28 @@ use macros::{ToDict, ToStr};
 use serde_derive::Serialize;
 use smol_str::SmolStr;
 
-
 pub trait EnumToStr {
     fn to_str(&self) -> &str;
 }
 
-pub trait Normalizator {
-    type Arg;
-    type Result;
 
-    fn normalize(&self, value: &Self::Arg) -> Self::Result;
+pub trait Builder<T> {
+    fn build(self) -> T;
+}
+
+pub trait Mapper<T> {
+    fn mapping(&mut self, item: T);
+}
+
+pub fn bool_operator<T>(operator: impl Into<bool>, value: Tuple<T>) -> Operator<Bool, T> {
+    let operator = Bool(operator.into());
+    Operator { operator, value }
+}
+
+pub fn bool_operator_singe<T>(operator: impl Into<bool>, value: T) -> Operator<Bool, T> {
+    let operator = Bool(operator.into());
+    let value = Tuple::Single(value);
+    Operator { operator, value }
 }
 
 #[derive(Serialize, Default, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -105,17 +117,6 @@ impl EnumToStr for Range {
     }
 }
 
-pub fn bool_operator<T>(operator: impl Into<bool>, value: Tuple<T>) -> Operator<Bool, T> {
-    let operator = Bool(operator.into());
-    Operator { operator, value }
-}
-
-pub fn bool_operator_singe<T>(operator: impl Into<bool>, value: T) -> Operator<Bool, T> {
-    let operator = Bool(operator.into());
-    let value = Tuple::Single(value);
-    Operator { operator, value }
-}
-
 #[derive(Clone, ToDict)]
 pub struct OperatorVec<T, T1> {
     #[serialize(rename = "Operator")]
@@ -123,9 +124,6 @@ pub struct OperatorVec<T, T1> {
     #[serialize(rename = "Values")]
     pub values: Vec<T1>,
 }
-
-#[derive(Serialize, Clone, PartialEq)]
-pub struct OperatorTypeGeneric<T>(pub T);
 
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -142,5 +140,11 @@ mod tests {
     fn str_eq() {
         let s = Str::new("LOG");
         assert_eq!(s, "LOG")
+    }
+
+    #[test]
+    fn empty_str() {
+        let s = Str::new("");
+        assert_eq!(s, "")
     }
 }

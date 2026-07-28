@@ -5,13 +5,11 @@ use serde::{
 
 use serde::ser::SerializeStruct;
 
-
 pub trait SerializeDict {
     fn serialize_dict_entries<S>(&self, serialize_map: S) -> Result<S, S::Error>
     where
         S: SerializeMap;
 }
-
 
 impl Serialize for crate::domain::IPProtocolOptions {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -63,9 +61,9 @@ impl Serialize for crate::domain::ProtocolSetting {
     }
 }
 
-impl<U, T1> Serialize for crate::domain::ACLRule<crate::domain::ACL<U>, T1>
+impl<T, T1> Serialize for crate::domain::Rule<T, T1>
 where
-    U: Serialize,
+    T: crate::domain::serialize::SerializeDict,
     T1: crate::domain::serialize::SerializeDict,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -108,5 +106,42 @@ where
             Self::Single(v) => (v,).serialize(serializer),
             Self::Pair(f, s) => (f, s).serialize(serializer),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use smol_str::SmolStr;
+
+    #[test]
+    fn serialize_empty_str() {
+        let s = crate::domain::Str::new("");
+
+        let actual = yaml_serde::to_string(&s).unwrap();
+
+        let expected = "''\n";
+
+        assert_eq!(
+            expected,
+            actual,
+            "{}",
+            diff::Diff::new("None", "serialize_empty_str", &actual, &expected)
+        )
+    }
+
+    #[test]
+    fn serialize_empty_str2() {
+        let s = SmolStr::new("");
+
+        let actual = yaml_serde::to_string(&s).unwrap();
+
+        let expected = "''\n";
+
+        assert_eq!(
+            expected,
+            actual,
+            "{}",
+            diff::Diff::new("None", "serialize_empty_str2", &actual, &expected)
+        )
     }
 }

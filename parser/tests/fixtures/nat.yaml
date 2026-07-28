@@ -1,0 +1,316 @@
+test_1:
+    input: "-A PREROUTING -s 192.168.1.0/24 -d 3.3.3.0/24 -j NETMAP --to 100.100.100.0/24\n"
+    remaining: ""
+    expected:
+        LineNumber: 1
+        Raw: -A PREROUTING -s 192.168.1.0/24 -d 3.3.3.0/24 -j NETMAP --to 100.100.100.0/24
+        Status: true
+        Protocol:
+            - Protocol:
+                  Operator: eq
+                  Values:
+                      - ip
+        NormalizedProtocol:
+            - Protocol:
+                  Operator: eq
+                  Values:
+                      - ip
+        Source:
+            - Address:
+                  Operator: eq
+                  Values:
+                      - Address:
+                            Address: 192.168.1.0
+                            Version: 4
+                        NetworkID:
+                            Address: 192.168.1.0
+                            Version: 4
+                        Prefix: 24
+        NormalizedSource:
+            - Operator: eq
+              Values:
+                  - Address:
+                        Address: 192.168.1.0
+                        Version: 4
+                    NetworkID:
+                        Address: 192.168.1.0
+                        Version: 4
+                    Prefix: 24
+        Destination:
+            - Address:
+                  Operator: eq
+                  Values:
+                      - Address:
+                            Address: 3.3.3.0
+                            Version: 4
+                        NetworkID:
+                            Address: 3.3.3.0
+                            Version: 4
+                        Prefix: 24
+        NormalizedDestination:
+            - Operator: eq
+              Values:
+                  - Address:
+                        Address: 3.3.3.0
+                        Version: 4
+                    NetworkID:
+                        Address: 3.3.3.0
+                        Version: 4
+                    Prefix: 24
+        Type: netmap
+        TranslatedProtocol: []
+        NormalizedTranslatedProtocol: []
+        TranslatedSourceAddress: []
+        NormalizedTranslatedSourceAddress: []
+        TranslatedDestinationAddress: []
+        NormalizedTranslatedDestinationAddress: []
+        InterfaceIn: []
+        InterfaceOut: []
+        ConnectionStates: []
+        Sets: []
+        NetworkMappedTranslatedAddress:
+            Operator: eq
+            Values:
+                - Address:
+                      Address: 100.100.100.0
+                      Version: 4
+                  NetworkID:
+                      Address: 100.100.100.0
+                      Version: 4
+                  Prefix: 24
+        Target: ''
+test_2:
+    input: "-A PREROUTING -s 3.3.3.0/25 -d 30.0.0.1/32 -p tcp -j REDIRECT --to-ports 40-50\n"
+    remaining: ""
+    expected:
+        LineNumber: 1
+        Raw: -A PREROUTING -s 3.3.3.0/25 -d 30.0.0.1/32 -p tcp -j REDIRECT --to-ports 40-50
+        Status: true
+        Protocol:
+            - ProtocolNumber:
+                  Operator: eq
+                  Values:
+                      - 6
+        NormalizedProtocol:
+            - ProtocolNumber:
+                  Operator: eq
+                  Values:
+                      - 6
+        Source:
+            - Address:
+                  Operator: eq
+                  Values:
+                      - Address:
+                            Address: 3.3.3.0
+                            Version: 4
+                        NetworkID:
+                            Address: 3.3.3.0
+                            Version: 4
+                        Prefix: 25
+        NormalizedSource:
+            - Operator: eq
+              Values:
+                  - Address:
+                        Address: 3.3.3.0
+                        Version: 4
+                    NetworkID:
+                        Address: 3.3.3.0
+                        Version: 4
+                    Prefix: 25
+        Destination:
+            - Address:
+                  Operator: eq
+                  Values:
+                      - Address:
+                            Address: 30.0.0.1
+                            Version: 4
+                        NetworkID:
+                            Address: 30.0.0.1
+                            Version: 4
+                        Prefix: 32
+        NormalizedDestination:
+            - Operator: eq
+              Values:
+                  - Address:
+                        Address: 30.0.0.1
+                        Version: 4
+                    NetworkID:
+                        Address: 30.0.0.1
+                        Version: 4
+                    Prefix: 32
+        Type: REDIRECT
+        TranslatedProtocol:
+            - ProtocolNumber:
+                  Operator: eq
+                  Values:
+                      - 6
+              TCPUDPOptions:
+                  SourcePorts: []
+                  DestinationPorts:
+                      - Operator: range
+                        Values:
+                            - 40
+                            - 50
+                  Flags: []
+        NormalizedTranslatedProtocol:
+            - ProtocolNumber:
+                  Operator: eq
+                  Values:
+                      - 6
+              TCPUDPOptions:
+                  SourcePorts: []
+                  DestinationPorts:
+                      - Operator: range
+                        Values:
+                            - 40
+                            - 50
+                  Flags: []
+        TranslatedSourceAddress: []
+        NormalizedTranslatedSourceAddress: []
+        TranslatedDestinationAddress: []
+        NormalizedTranslatedDestinationAddress: []
+        InterfaceIn: []
+        InterfaceOut: []
+        ConnectionStates: []
+        Sets: []
+        NetworkMappedTranslatedAddress: null
+        Target: ''
+test_3:
+    input: "-A POSTROUTING -s 30.0.0.0/24 -j SNAT --to-source 4.4.4.4\n"
+    remaining: ""
+    expected:
+        LineNumber: 1
+        Raw: -A POSTROUTING -s 30.0.0.0/24 -j SNAT --to-source 4.4.4.4
+        Status: true
+        Protocol:
+            - Protocol:
+                  Operator: eq
+                  Values:
+                      - ip
+        NormalizedProtocol:
+            - Protocol:
+                  Operator: eq
+                  Values:
+                      - ip
+        Source:
+            - Address:
+                  Operator: eq
+                  Values:
+                      - Address:
+                            Address: 30.0.0.0
+                            Version: 4
+                        NetworkID:
+                            Address: 30.0.0.0
+                            Version: 4
+                        Prefix: 24
+        NormalizedSource:
+            - Operator: eq
+              Values:
+                  - Address:
+                        Address: 30.0.0.0
+                        Version: 4
+                    NetworkID:
+                        Address: 30.0.0.0
+                        Version: 4
+                    Prefix: 24
+        Destination: []
+        NormalizedDestination: []
+        Type: SNAT
+        TranslatedProtocol:
+            - Protocol:
+                  Operator: eq
+                  Values:
+                      - ip
+        NormalizedTranslatedProtocol:
+            - Protocol:
+                  Operator: eq
+                  Values:
+                      - ip
+        TranslatedSourceAddress:
+            - Address:
+                  Operator: eq
+                  Values:
+                      - Address:
+                            Address: 4.4.4.4
+                            Version: 4
+                        NetworkID:
+                            Address: 4.4.4.4
+                            Version: 4
+                        Prefix: 32
+        NormalizedTranslatedSourceAddress:
+            - Operator: eq
+              Values:
+                  - Address:
+                        Address: 4.4.4.4
+                        Version: 4
+                    NetworkID:
+                        Address: 4.4.4.4
+                        Version: 4
+                    Prefix: 32
+        TranslatedDestinationAddress: []
+        NormalizedTranslatedDestinationAddress: []
+        InterfaceIn: []
+        InterfaceOut: []
+        ConnectionStates: []
+        Sets: []
+        NetworkMappedTranslatedAddress: null
+        Target: ''
+test_4:
+    input: "-A POSTROUTING -o ToRouter -p tcp -j MASQUERADE --to-ports 30-40\n"
+    remaining: ""
+    expected:
+        LineNumber: 1
+        Raw: -A POSTROUTING -o ToRouter -p tcp -j MASQUERADE --to-ports 30-40
+        Status: true
+        Protocol:
+        - ProtocolNumber:
+            Operator: eq
+            Values:
+            - 6
+        NormalizedProtocol:
+        - ProtocolNumber:
+            Operator: eq
+            Values:
+            - 6
+        Source: []
+        NormalizedSource: []
+        Destination: []
+        NormalizedDestination: []
+        Type: overload
+        TranslatedProtocol:
+        - ProtocolNumber:
+            Operator: eq
+            Values:
+            - 6
+          TCPUDPOptions:
+            SourcePorts:
+            - Operator: range
+              Values:
+              - 30
+              - 40
+            DestinationPorts: []
+            Flags: []
+        NormalizedTranslatedProtocol:
+        - ProtocolNumber:
+            Operator: eq
+            Values:
+            - 6
+          TCPUDPOptions:
+            SourcePorts:
+            - Operator: range
+              Values:
+              - 30
+              - 40
+            DestinationPorts: []
+            Flags: []
+        TranslatedSourceAddress: []
+        NormalizedTranslatedSourceAddress: []
+        TranslatedDestinationAddress: []
+        NormalizedTranslatedDestinationAddress: []
+        InterfaceIn: []
+        InterfaceOut:
+        - ToRouter
+        ConnectionStates: []
+        Sets: []
+        NetworkMappedTranslatedAddress: null
+        Target: ''

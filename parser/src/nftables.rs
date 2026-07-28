@@ -1,6 +1,7 @@
 mod builder;
 
 pub use builder::RawACLRule;
+pub use builder::RawNATRule;
 
 use nom::{
     IResult, Parser,
@@ -21,15 +22,12 @@ use std::{
     rc::Rc,
 };
 
-use crate::{
-    domain::{
-        self as d,
-        nftables::{Chain, ChainName, DefaultAction, Table, UserChain},
-    },
-    nftables::builder::{
-        ACLExtendedEnum, ACLPart, Address, Interface, ProtocolPart, RulePart, Token,
-    },
+use crate::domain::{
+    self as d, Mapper,
+    nftables::{Chain, ChainName, DefaultAction, Table, UserChain},
 };
+
+use builder as b;
 
 use crate::{
     Context,
@@ -98,6 +96,8 @@ mod tests {
     #[fixtures(["acl.yaml"])]
     #[test]
     fn test_rule(path: &std::path::Path) {
+        use crate::domain::Builder;
+
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
 
         let interfaces = vec![String::from("swp1"), String::from("swp2")];
@@ -110,7 +110,36 @@ mod tests {
         let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
         for (test_name, value) in map {
             let test: TestSuit = yaml_serde::from_value(value).unwrap();
-            let (remaining, mut rule_str) = acl_rule_parser(&ctx)(&test.input).unwrap();
+            let (remaining, mut rule_str) = acl::parser(&ctx)(&test.input).unwrap();
+            rule_str.set_number(1);
+            rule_str.set_status();
+            let rule = rule_str.build();
+
+            let test_name = test_name.as_str().unwrap();
+
+            assert_remaining_wrap(path, &test_name, &test.remaining, remaining);
+            assert_eq_wrap(path, &test_name, &rule, &test.expected)
+        }
+    }
+
+    #[fixtures(["nat.yaml"])]
+    #[test]
+    fn test_nat_rule(path: &std::path::Path) {
+        use crate::domain::Builder;
+
+        let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
+
+        let interfaces = vec![String::from("swp1"), String::from("swp2")];
+        let user_chains = vec![String::from("MY_CHAIN")];
+
+        let context = Context::new(interfaces, user_chains);
+
+        let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
+
+        let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
+        for (test_name, value) in map {
+            let test: TestSuit = yaml_serde::from_value(value).unwrap();
+            let (remaining, mut rule_str) = nat::parser(&ctx)(&test.input).unwrap();
             rule_str.set_number(1);
             rule_str.set_status();
             let rule = rule_str.build();
@@ -152,6 +181,27 @@ mod tests {
             let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
 
             let (remaining, result) = table(&ctx)(&test.input).unwrap();
+
+            let test_name = test_name.as_str().unwrap();
+
+            assert_remaining_wrap(path, test_name, &test.remaining, remaining);
+            assert_eq_wrap(path, test_name, &result, &test.expected)
+        }
+    }
+
+    #[fixtures(["nat_table.yaml"])]
+    #[test]
+    fn test_nat_table<'a>(path: &std::path::Path) {
+        let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
+        let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
+        for (test_name, value) in map {
+            let test: TestSuit = yaml_serde::from_value(value).unwrap();
+
+            let interfaces = vec![String::from("swp1"), String::from("swp2")];
+            let context = Context::new(interfaces, vec![]);
+            let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
+
+            let (remaining, result) = nat_table(&ctx)(&test.input).unwrap();
 
             let test_name = test_name.as_str().unwrap();
 
@@ -216,12 +266,22 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "called `Result::unwrap()` on an `Err` value: Error(Error { input: \"\", code: TakeUntil })"
+        expected = "called `Result::unwrap()` on an `Err` value: Error(Error { input: \"\", code: Char })"
     )]
     fn test_wrap_error_line_error() {
         crate::parser::wrap_error_line(tag::<&str, &str, nom::error::Error<&str>>("a"))
             .parse("")
             .unwrap();
+    }
+
+    #[test]
+    fn test_wrap_error_line_newline() {
+        let (rem, res) =
+            crate::parser::wrap_error_line(tag::<&str, &str, nom::error::Error<&str>>("a"))
+                .parse("\n")
+                .unwrap();
+        assert_eq!("", rem);
+        assert_eq!("NEWLINE\n", yaml_serde::to_string(&res).unwrap())
     }
 
     #[test]
@@ -272,11 +332,11 @@ mod tests {
         let (rem, res) = interface("-i")("-i eth1,mgmt").unwrap();
         assert_eq!("", rem);
 
-        if let Interface::Value(v) = res.1[0] {
+        if let b::Interface::Value(v) = res.1[0] {
             assert_eq!(v, "eth1")
         }
 
-        if let Interface::Value(v) = res.1[1] {
+        if let b::Interface::Value(v) = res.1[1] {
             assert_eq!(v, "mgmt")
         }
     }
@@ -317,7 +377,7 @@ mod tests {
         let (rem, (operator, protocol_type)) = protocol("-p tcp").unwrap();
         assert_eq!("", rem);
 
-        assert!(operator.0.is_none());
+        assert!(operator.is_none());
 
         if let d::ProtocolType::TCP = protocol_type {
             assert!(true)
@@ -422,6 +482,98 @@ Values:
             actual,
             "{}",
             diff::Diff::new("None", "test_storigsrc", &actual, &expected)
+        )
+    }
+
+    #[test]
+    fn test_address_port_dest() {
+        let (rem, res) =
+            address_port("--to-destination")("--to-destination 10.0.0.0-10.0.0.10:600-70").unwrap();
+        assert_eq!("", rem);
+        let expected = r#"- Operator: range
+  Values:
+  - Address:
+      Address: 10.0.0.0
+      Version: 4
+    NetworkID:
+      Address: 10.0.0.0
+      Version: 4
+    Prefix: 32
+  - Address:
+      Address: 10.0.0.10
+      Version: 4
+    NetworkID:
+      Address: 10.0.0.10
+      Version: 4
+    Prefix: 32
+- Operator: range
+  Values:
+  - 600
+  - 70
+"#;
+        let actual = yaml_serde::to_string(&res).unwrap();
+
+        assert_eq!(
+            expected,
+            actual,
+            "{}",
+            diff::Diff::new("None", "test_address_port_dest", &actual, &expected)
+        )
+    }
+
+    #[test]
+    fn test_network_mapped_translated_address() {
+        let (rem, res) = network_mapped_translated_address("--to 100.100.100.0/24").unwrap();
+        assert_eq!("", rem);
+        let expected = r#"Operator: eq
+Values:
+- Address:
+    Address: 100.100.100.0
+    Version: 4
+  NetworkID:
+    Address: 100.100.100.0
+    Version: 4
+  Prefix: 24
+"#;
+        let actual = yaml_serde::to_string(&res).unwrap();
+
+        assert_eq!(
+            expected,
+            actual,
+            "{}",
+            diff::Diff::new(
+                "None",
+                "test_network_mapped_translated_address",
+                &actual,
+                &expected
+            )
+        )
+    }
+
+    #[test]
+    fn test_address_port() {
+        let (rem, res) = address_port("--to-source")("--to-source 4.4.4.4:400").unwrap();
+        assert_eq!("", rem);
+        let expected = r#"- Operator: eq
+  Values:
+  - Address:
+      Address: 4.4.4.4
+      Version: 4
+    NetworkID:
+      Address: 4.4.4.4
+      Version: 4
+    Prefix: 32
+- Operator: eq
+  Values:
+  - 400
+"#;
+        let actual = yaml_serde::to_string(&res).unwrap();
+
+        assert_eq!(
+            expected,
+            actual,
+            "{}",
+            diff::Diff::new("None", "address_port", &actual, &expected)
         )
     }
 
@@ -630,13 +782,13 @@ fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::PortOperator
 fn ip4_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IPOperator> {
     move |input: &str| {
         let network = map(pair(terminated(p::ip4, tag("/")), u8), |v| {
-            Address::Network(v)
+            b::Address::Network(v)
         });
         // --ctorigsrc 10.10.140.3 prefix равен 32
-        let ip = map(p::ip4, Address::IP);
+        let ip = map(p::ip4, b::Address::IP);
         // 192.168.0.2-192.168.0.100
         let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
-            Address::Range(v)
+            b::Address::Range(v)
         });
 
         map(
@@ -650,7 +802,7 @@ fn ip4_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IPOperato
     }
 }
 
-pub fn tcp_flag_item(s: &str) -> IResult<&str, Vec<d::Flag>> {
+fn tcp_flag_item(s: &str) -> IResult<&str, Vec<d::Flag>> {
     let flag = alt((
         value(d::Flag::SYN, tag("SYN")),
         value(d::Flag::ACK, tag("ACK")),
@@ -688,6 +840,7 @@ fn protocol<'a>(s: &'_ str) -> IResult<&'_ str, (Operator, d::ProtocolType)> {
 }
 
 fn log_options(s: &str) -> IResult<&str, ActionSetting> {
+    // TODO log-uid
     let tag_parser = alt((
         value(ActionType::LogTCPSequence, tag("--log-tcp-sequence")),
         value(ActionType::LogTCPOptions, tag("--log-tcp-options")),
@@ -714,6 +867,20 @@ fn log_level(s: &str) -> IResult<&str, ActionSetting> {
         |(action, option)| ActionSetting::new(action, Some(Str::new(option))),
     )
     .parse(s)
+}
+
+fn action_type(input: &str) -> IResult<&str, ActionType> {
+    alt((
+        value(ActionType::ACCEPT, tag("ACCEPT")),
+        value(ActionType::DROP, tag("DROP")),
+        value(ActionType::NFLOG, tag("NFLOG")),
+        value(ActionType::QUEUE, tag("QUEUE")),
+        value(ActionType::RETURN, tag("RETURN")),
+        value(ActionType::JUMP, tag("JUMP")),
+        value(ActionType::LOG, tag("LOG")),
+        value(ActionType::REJECT, tag("REJECT")),
+    ))
+    .parse(input)
 }
 
 // --ctstate INVALID,RELATED,SNAT
@@ -769,10 +936,10 @@ fn set(s: &str) -> IResult<&str, d::SetOperator> {
 // ! -i swp3,swp4
 // eth0,mgmt
 
-fn interface(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (bool, Vec<Interface>)> {
+fn interface(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (bool, Vec<b::Interface>)> {
     move |input: &str| {
-        let mask_parser = map(terminated(alphanumeric1, tag("+")), Interface::Mask);
-        let value_parser = map(alphanumeric1, Interface::Value);
+        let mask_parser = map(terminated(alphanumeric1, tag("+")), b::Interface::Mask);
+        let value_parser = map(alphanumeric1, b::Interface::Value);
 
         let parser = alt((mask_parser, value_parser));
 
@@ -784,8 +951,49 @@ fn interface(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (bool, Vec<Int
     }
 }
 
-fn protocol_setting(input: &str) -> IResult<&str, ProtocolPart<Operator>> {
-    type PROTOCOL = ProtocolPart<Operator>; // TODO fix alt_impl full path
+//
+// ipaddr[-ipaddr][:port-port]
+// --to-destination 10.0.0.0-10.0.0.10:600-70
+// --to-source 4.4.4.4:400
+// 10.0.0.0-10.0.0.10:600-700
+fn address_port(
+    arg: &'static str,
+) -> impl Fn(&str) -> IResult<&str, (d::IPOperator, Option<d::PortOperator>)> {
+    move |input: &str| {
+        let port = map(SingleOrPairU16::sep_dash, |v| d::PortOperator::new(true, v));
+
+        let ip = map(p::ip4, b::Address::IP);
+        // 192.168.0.2-192.168.0.100
+        let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
+            b::Address::Range(v)
+        });
+
+        let ip_address = map(alt((range_ip, ip)), |v| v.ip_operator(true));
+
+        preceded_tag_space(arg, (ip_address, opt(preceded(tag(":"), port)))).parse(input)
+    }
+}
+
+fn to_port<'a>(input: &str) -> IResult<&str, d::PortOperator> {
+    let port = map(SingleOrPairU16::sep_dash, |v| d::PortOperator::new(true, v));
+    preceded_tag_space("--to-ports", port).parse(input)
+}
+// --to 100.100.100.0/24
+//
+fn network_mapped_translated_address<'a>(input: &'a str) -> IResult<&'a str, d::IPOperator> {
+    let network = map(pair(terminated(p::ip4, tag("/")), u8), |v| {
+        b::Address::Network(v)
+    });
+    let ip = map(p::ip4, b::Address::IP);
+
+    map(preceded_tag_space("--to", alt((network, ip))), |v| {
+        v.ip_operator(true)
+    })
+    .parse(input)
+}
+
+fn protocol_setting(input: &str) -> IResult<&str, b::ProtocolPart<Operator>> {
+    type PROTOCOL = b::ProtocolPart<Operator>; // TODO fix alt_impl full path
     alt_impl!(
         PROTOCOL,
         "Ports" = port("--ports"),
@@ -802,25 +1010,8 @@ fn protocol_setting(input: &str) -> IResult<&str, ProtocolPart<Operator>> {
     .parse(input)
 }
 
-fn acl_parser<'a>(input: &'a str) -> IResult<&'a str, ACLPart<'a>> {
-    alt_impl!(
-        ACLPart,
-        "Jump" = tag_value("-j"),
-        "Goto" = tag_value("-g"),
-        "RejectWith" = tag_value("--reject-with"),
-        "LogLevel" = log_level,
-        "ActionModifier" = log_options,
-        "InterfaceIn" = interface("-i"),
-        "InterfaceOut" = interface("-o"),
-    )
-    .parse(input)
-}
-
-fn acl_extended_parser(input: &str) -> IResult<&str, ACLExtendedEnum> {
-    alt_impl!(ACLExtendedEnum, "Ctstate" = ctstate, "Sets" = set,).parse(input)
-}
-
-fn base_parser(input: &str) -> IResult<&str, RulePart> {
+fn general_parser(input: &str) -> IResult<&str, b::General> {
+    type General = b::General;
     let dst = alt((
         ip4_address("-d"),
         ip4_address("--dst-range"),
@@ -832,33 +1023,149 @@ fn base_parser(input: &str) -> IResult<&str, RulePart> {
         ip4_address("--ctorigsrc"),
     ));
 
-    alt_impl!(RulePart, "Destination" = dst, "Source" = scr,).parse(input)
+    alt_impl!(General, "Destination" = dst, "Source" = scr,).parse(input)
 }
 
-fn token<'a>(input: &'a str) -> IResult<&'a str, Token<'a>> {
-    alt_impl!(
-        Token,
-        "Protocol" = protocol_setting,
-        "Base" = base_parser,
-        "ACL" = acl_parser,
-        "ACLExtended" = acl_extended_parser,
-        "space" = space1,
-        "Error" = unknown_part,
-    )
-    .parse(input)
+mod acl {
+    use super::*;
+
+    fn acl_option<'a>(input: &'a str) -> IResult<&'a str, b::ACL<'a>> {
+        type ACL<'a> = b::ACL<'a>;
+        alt_impl!(
+            ACL,
+            "Action" = map_parser(tag_value("-j"), action_type)
+            "Jump" = tag_value("-j"),
+            "Goto" = tag_value("-g"),
+            "RejectWith" = tag_value("--reject-with"),
+            "LogLevel" = log_level,
+            "ActionModifier" = log_options,
+            "InterfaceIn" = interface("-i"),
+            "InterfaceOut" = interface("-o"),
+        )
+        .parse(input)
+    }
+
+    fn vendor(input: &str) -> IResult<&str, b::Vendor> {
+        type Vendor = b::Vendor;
+        alt_impl!(Vendor, "Ctstate" = ctstate, "Sets" = set).parse(input)
+    }
+
+    fn option<'a>(input: &'a str) -> IResult<&'a str, b::Rule<'a, b::ACL<'a>>> {
+        type ACL<'a> = b::Rule<'a, b::ACL<'a>>;
+        alt_impl!(
+            ACL,
+            "Protocol" = protocol_setting,
+            "General" = general_parser,
+            "Extended" = acl_option,
+            "Vendor" = vendor,
+            "space" = space1,
+            "Error" = unknown_part,
+        )
+        .parse(input)
+    }
+
+    pub fn parser<'a>(
+        ctx: &'a Rc<RefCell<Context>>,
+    ) -> impl Fn(&'a str) -> IResult<&'a str, RawACLRule<'a>> {
+        move |s: &str| {
+            let (remain, row) = p::terminated_by_newline(take_until1("\n")).parse(s)?;
+
+            let (options, chain) = tag_value("-A").parse(row)?;
+
+            let mut rule_parser = fold_many1(
+                option,
+                || RawACLRule::new(ctx, row, chain),
+                |mut acc, item: b::Rule<'a, b::ACL<'a>>| {
+                    acc.mapping(item);
+                    acc
+                },
+            );
+
+            let (_, rule) = rule_parser.parse(options)?;
+            Ok((remain, rule))
+        }
+    }
 }
 
-/*
-     default_chains_map = dict(
-        raw={'PREROUTING', 'OUTPUT'},
-        filter={'INPUT', 'OUTPUT', 'FORWARD'},
-        mangle={'INPUT', 'OUTPUT', 'FORWARD', 'POSTROUTING', 'PREROUTING'},
-             security={'INPUT', 'OUTPUT', 'FORWARD'}
-    )
+mod nat {
+    use super::*;
 
-*/
+    fn type_(input: &str) -> IResult<&str, d::nftables::NATType> {
+        alt((
+            value(d::nftables::NATType::NETMAP, tag("NETMAP")),
+            value(d::nftables::NATType::RETURN, tag("RETURN")),
+            value(d::nftables::NATType::MASQUERADE, tag("MASQUERADE")),
+            value(d::nftables::NATType::DNAT, tag("DNAT")),
+            value(d::nftables::NATType::SNAT, tag("SNAT")),
+            value(d::nftables::NATType::REDIRECT, tag("REDIRECT")),
+        ))
+        .parse(input)
+    }
 
-// еще один вариант решения проблемы того что нельзя скопировать парсер
+    fn nat_option<'a>(input: &'a str) -> IResult<&'a str, b::NAT<'a>> {
+        type NAT<'a> = b::NAT<'a>;
+        alt_impl!(
+            NAT,
+            "Type" = map_parser(tag_value("-j"), type_),
+            "Jump" = tag_value("-j"),
+            "Goto" = tag_value("-g"),
+            "InterfaceIn" = interface("-i"),
+            "InterfaceOut" = interface("-o"),
+            "TranslatedSource" = address_port("--to-source"),
+            "TranslatedDestination" = address_port("--to-destination"),
+            "TranslatedPort" = to_port,
+        )
+        .parse(input)
+    }
+
+    fn extended(input: &str) -> IResult<&str, b::Vendor> {
+        type Vendor = b::Vendor;
+        alt_impl!(
+            Vendor,
+            "Ctstate" = ctstate,
+            "Sets" = set,
+            "NetworkMappedTranslatedAddress" = network_mapped_translated_address,
+        )
+        .parse(input)
+    }
+
+    fn option<'a>(input: &'a str) -> IResult<&'a str, b::Rule<'a, b::NAT<'a>>> {
+        type NAT<'a> = b::Rule<'a, b::NAT<'a>>;
+        alt_impl!(
+            NAT,
+            "Protocol" = protocol_setting,
+            "General" = general_parser,
+            "Extended" = nat_option,
+            "Vendor" = extended,
+            "space" = space1,
+            "Error" = unknown_part,
+        )
+        .parse(input)
+    }
+
+    pub fn parser<'a>(
+        ctx: &'a Rc<RefCell<Context>>,
+    ) -> impl Fn(&'a str) -> IResult<&'a str, RawNATRule<'a>> {
+        move |s: &str| {
+            let (remain, row) = p::terminated_by_newline(take_until1("\n")).parse(s)?;
+
+            let (options, chain) = tag_value("-A").parse(row)?;
+
+            let mut rule_parser = fold_many1(
+                option,
+                || RawNATRule::new(ctx, row, chain),
+                |mut acc, item: b::Rule<'a, b::NAT<'a>>| {
+                    acc.mapping(item);
+                    acc
+                },
+            );
+
+            let (_, rule) = rule_parser.parse(options)?;
+            Ok((remain, rule))
+        }
+    }
+}
+
 macro_rules! chain_m {
     ($name:tt, $parser:expr) => {
         fn $name(input: &str) -> IResult<&str, (ChainName, DefaultAction)> {
@@ -946,7 +1253,6 @@ chain_m!(
 
 fold_chain_m!(fold_mangle_chain, mangle_chain);
 
-//    nat={'POSTROUTING', 'PREROUTING', 'OUTPUT', 'INPUT'},
 chain_m!(
     nat_chain,
     map(
@@ -959,6 +1265,8 @@ chain_m!(
         |v| { Str::new(v) }
     )
 );
+
+fold_chain_m!(fold_nat_chain, nat_chain);
 
 fn user_chain(s: &str) -> IResult<&str, (UserChain, DefaultAction)> {
     let (remain, result) = (
@@ -976,64 +1284,65 @@ fn user_chain(s: &str) -> IResult<&str, (UserChain, DefaultAction)> {
 table_m!(table_raw, "raw", fold_raw_chain);
 table_m!(table_filter, "filter", fold_filter_chain);
 table_m!(table_mangle, "mangle", fold_mangle_chain);
+table_m!(table_nat, "nat", fold_nat_chain);
 
-pub fn fold_user_chain(input: &str) -> IResult<&str, Vec<(UserChain, DefaultAction)>> {
+fn fold_user_chain(input: &str) -> IResult<&str, Vec<(UserChain, DefaultAction)>> {
     let mut user_chains = map(opt(many1(user_chain)), |v| v.unwrap_or_default());
 
     user_chains.parse(input)
 }
 
-fn table<'a>(ctx: &'a Rc<RefCell<Context>>) -> impl FnMut(&'a str) -> IResult<&'a str, Table> {
-    move |input: &str| {
-        let (remain, (mut table, body)) =
-            alt((table_raw, table_filter, table_mangle)).parse(input)?;
+macro_rules! impl_table_parser {
+    (
+        $name:ident,
+        header = $header_parser:expr,
+        rules = $rule_parser:expr,
+        process = $process_method:ident $(,)?
+    ) => {
+        fn $name<'a>(
+            ctx: &'a Rc<RefCell<Context>>,
+        ) -> impl FnMut(&'a str) -> IResult<&'a str, Table> {
+            move |input: &str| {
+                let (remain, (mut table, body)) = $header_parser.parse(input)?;
 
-        let (body, user_chains) = fold_user_chain(body)?;
+                let (body, user_chains) = fold_user_chain(body)?;
 
-        let user_chain_names = table.process_user_chain(user_chains);
+                let user_chain_names = table.process_user_chain(user_chains);
 
-        let mut mut_ctx: RefMut<'_, _> = ctx.borrow_mut();
-        mut_ctx.set(user_chain_names);
+                let mut mut_ctx: RefMut<'_, _> = ctx.borrow_mut();
+                mut_ctx.set(user_chain_names);
+                drop(mut_ctx);
 
-        drop(mut_ctx);
+                let parser = p::wrap_error_line($rule_parser(ctx));
+                let (_, rules) = many1(parser).parse(body)?;
 
-        let parser = p::wrap_error_line(acl_rule_parser(ctx));
+                table.$process_method(rules);
 
-        let (_, rules) = many1(parser).parse(body)?;
-
-        table.process_ruls(rules);
-
-        Ok((remain, table))
-    }
+                Ok((remain, table))
+            }
+        }
+    };
 }
 
-fn acl_rule_parser<'a>(
-    ctx: &'a Rc<RefCell<Context>>,
-) -> impl Fn(&'a str) -> IResult<&'a str, RawACLRule<'a>> {
-    move |s: &str| {
-        let (remain, row) = p::terminated_by_newline(take_until1("\n")).parse(s)?;
+impl_table_parser!(
+    table,
+    header = alt((table_raw, table_filter, table_mangle)),
+    rules = acl::parser,
+    process = process_acl_rules,
+);
 
-        let (options, chain) = tag_value("-A").parse(row)?;
-
-        let mut rule_parser = fold_many1(
-            token,
-            || RawACLRule::new(ctx, row, chain),
-            |mut acc, item: Token| {
-                acc.mapping(item);
-                acc
-            },
-        );
-
-        let (_, rule) = rule_parser.parse(options)?;
-        Ok((remain, rule))
-    }
-}
+impl_table_parser!(
+    nat_table,
+    header = table_nat,
+    rules = nat::parser,
+    process = process_nat_rules,
+);
 
 pub fn tables<'a>(
     ctx: &'a Rc<RefCell<Context>>,
 ) -> impl Fn(&'a str) -> IResult<&'a str, Vec<Table>> {
     move |input: &str| {
-        let parser = p::wrap_error_line(table(ctx));
+        let parser = p::wrap_error_line(alt((table(ctx), nat_table(ctx))));
 
         let (remain, result) = many1(parser).parse(input)?;
         let mut tables = Vec::new();

@@ -72,9 +72,9 @@ impl IntoPy<PyObject> for crate::domain::ProtocolSetting {
     }
 }
 
-impl<U, T1> IntoPy<PyObject> for crate::domain::ACLRule<crate::domain::ACL<U>, T1>
+impl<T, T1> IntoPy<PyObject> for crate::domain::Rule<T, T1>
 where
-    U: IntoPy<PyObject>,
+    T: IntoPyDict,
     T1: IntoPyDict,
 {
     fn into_py(self, py: Python) -> PyObject {
@@ -116,5 +116,14 @@ where
 impl IntoPy<PyObject> for crate::domain::generic::Str {
     fn into_py(self, py: Python) -> PyObject {
         self.as_str().into_py(py)
+    }
+}
+
+impl IntoPy<PyObject> for crate::domain::nftables::Rule {
+    fn into_py(self, py: Python) -> PyObject {
+        match self {
+            Self::ACL(v) => v.into_py(py),
+            Self::NAT(v) => v.into_py(py),
+        }
     }
 }

@@ -1,15 +1,34 @@
-use crate::domain::generic::Bool;
-use crate::domain::{self as d, Str};
-use crate::nftables::RawACLRule;
-use macros::{ToDict, ToPyDict, ToSerialzeMap, ToStr, is_not_null};
+use crate::domain::{self as d, Builder, EnumToStr};
+use crate::nftables::{RawACLRule, RawNATRule};
+use macros::{ToDict, ToPyDict, ToSerialzeMap, ToStr};
 use serde_derive::Serialize;
 use std::collections::BTreeMap;
-use std::str::FromStr;
 
 use serde::{Serializer, ser::SerializeSeq};
 
-#[derive(Debug)]
-pub struct ConvertError; // TODO нормальное название
+#[derive(Default, ToStr, Clone)]
+pub enum NATType {
+    #[serialize(rename = "return")]
+    RETURN,
+    #[serialize(rename = "jump")]
+    JUMP,
+    #[serialize(rename = "GOTO")]
+    GOTO,
+    #[serialize(rename = "overload")]
+    MASQUERADE,
+    #[serialize(rename = "netmap")]
+    NETMAP,
+    #[serialize(rename = "DNAT")]
+    DNAT,
+    #[serialize(rename = "SNAT")]
+    SNAT,
+    #[serialize(rename = "REDIRECT")]
+    REDIRECT,
+    #[serialize(rename = "")]
+    #[default]
+    NONE,
+}
+
 
 #[derive(Default, ToStr, Clone, PartialEq, Debug)]
 pub enum ActionType {
@@ -48,35 +67,8 @@ pub enum ActionType {
     LogUID,
 }
 
-
-impl FromStr for ActionType {
-    type Err = ConvertError; // TODO
-
-    fn from_str(o: &str) -> Result<Self, Self::Err> {
-        match o {
-            "ACCEPT" => Ok(Self::ACCEPT),
-            "DROP" => Ok(Self::DROP),
-            "LOG" => Ok(Self::LOG),
-            "NFLOG" => Ok(Self::NFLOG),
-            "QUEUE" => Ok(Self::QUEUE),
-            "REJECT" => Ok(Self::REJECT),
-            "RETURN" => Ok(Self::RETURN),
-            "GOTO" => Ok(Self::GOTO),
-            "JUMP" => Ok(Self::JUMP),
-            "log-level" => Ok(Self::LogLevel),
-            "log-prefix" => Ok(Self::LogPrefix),
-            "log-tcp-sequence" => Ok(Self::LogTCPSequence),
-            "log-tcp-options" => Ok(Self::LogTCPOptions),
-            "log-ip-options" => Ok(Self::LogIPOptions),
-            "log-uid" => Ok(Self::LogUID),
-
-            _ => Err(ConvertError),
-        }
-    }
-}
-
 impl TryInto<d::NormalizedAction> for ActionType {
-    type Error = crate::domain::ParseEnumError;
+    type Error = crate::domain::NormalizedActionError;
 
     fn try_into(self) -> Result<d::NormalizedAction, Self::Error> {
         match self {
@@ -86,18 +78,19 @@ impl TryInto<d::NormalizedAction> for ActionType {
             Self::PASS => Ok(d::NormalizedAction::PASS),
             Self::RETURN => Ok(d::NormalizedAction::RETURN),
 
-            _ => Err(crate::domain::ParseEnumError),
+            _ => Err(crate::domain::NormalizedActionError::new(self.to_str())),
         }
     }
 }
 
 pub static EXCLAMATION: &str = "!";
 
-pub type OperatorType = d::OperatorTypeGeneric<Option<&'static str>>;
+#[derive(Clone)]
+pub struct OperatorType(Option<&'static str>);
 
 impl From<OperatorType> for bool {
     fn from(val: OperatorType) -> Self {
-        val.0.is_none()
+        val.is_none()
     }
 }
 
@@ -129,34 +122,37 @@ impl OperatorType {
     pub fn new(value: Option<&'static str>) -> Self {
         Self(value)
     }
+
+    pub fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
 }
 
-
-#[derive(Serialize, Default)]
-#[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
-pub struct NATExtended<'a> {
-    #[serde(skip_serializing_if = "d::is_empty")]
+#[derive(ToDict, ToSerialzeMap)]
+pub struct NATExtended {
+    #[serialize(rename = "ConnectionStates")]
     connection_states: Vec<d::StringOperator>,
-    #[serde(skip_serializing_if = "d::is_empty")]
+    #[serialize(rename = "Sets")]
     sets: Vec<d::SetOperator>,
+    #[serialize(rename = "NetworkMappedTranslatedAddress")]
     network_mapped_translated_address: Option<d::IPOperator>,
-    target: Option<&'a str>,
+    #[serialize(rename = "Target")]
+    target: Option<d::Str>,
 }
 
-impl<'a> NATExtended<'a> {
-    #[is_not_null(all)]
+impl NATExtended {
     pub fn new(
         connection_states: Vec<d::StringOperator>,
         sets: Vec<d::SetOperator>,
         network_mapped_translated_address: Option<d::IPOperator>,
-        target: Option<&'a str>,
-    ) -> Option<Self> {
-        Some(Self {
+        target: Option<d::Str>,
+    ) -> Self {
+        Self {
             connection_states,
             sets,
             network_mapped_translated_address,
             target,
-        })
+        }
     }
 }
 
@@ -179,21 +175,29 @@ impl ACLExtended {
 
 pub type ActionSetting = d::ActionSetting<ActionType>;
 
-pub type ACLRule = d::ACLRule<d::ACL<ActionType>, ACLExtended>;
+pub type ACLRule = d::Rule<d::ACL<ActionType>, ACLExtended>;
+pub type NATRule = d::Rule<d::NAT<d::nftables::NATType>, d::nftables::NATExtended>;
 
-pub type UserChain = Str;
-pub type ChainName = Str;
-pub type DefaultAction = Str;
+pub type UserChain = d::Str;
+pub type ChainName = d::Str;
+pub type DefaultAction = d::Str;
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum Rule {
+    ACL(ACLRule),
+    NAT(NATRule),
+}
 
 #[derive(Serialize, ToPyDict)]
 pub struct Chain {
     name: ChainName,
     default_action: DefaultAction,
-    rules: Vec<d::nftables::ACLRule>,
+    rules: Vec<Rule>,
 }
 
 impl Chain {
-    pub fn new(name: Str, default_action: Str) -> Self {
+    pub fn new(name: d::Str, default_action: d::Str) -> Self {
         Self {
             name,
             default_action,
@@ -202,7 +206,7 @@ impl Chain {
     }
 }
 
-fn to_list<S>(map: &BTreeMap<Str, Chain>, serializer: S) -> Result<S::Ok, S::Error>
+fn to_list<S>(map: &BTreeMap<d::Str, Chain>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -215,24 +219,28 @@ where
 
 #[derive(Serialize, ToPyDict)]
 pub struct Table {
-    name: Str,
+    name: d::Str,
     #[serde(rename = "chains", serialize_with = "to_list")]
-    chain_map: BTreeMap<Str, Chain>,
+    chain_map: BTreeMap<d::Str, Chain>,
 }
 
 impl Table {
     pub fn new(name: &str) -> Self {
         let chain_map = BTreeMap::new();
-        let name = Str::new(name);
+        let name = d::Str::new(name);
 
         Self { name, chain_map }
     }
 
-    pub fn set_chain_map(&mut self, value: BTreeMap<Str, Chain>) {
+    pub fn set_chain_map(&mut self, value: BTreeMap<d::Str, Chain>) {
         self.chain_map = value
     }
 
-    pub fn set_chain(&mut self, name: Str, default_action: Str) -> std::option::Option<Chain> {
+    pub fn set_chain(
+        &mut self,
+        name: d::Str,
+        default_action: d::Str,
+    ) -> std::option::Option<Chain> {
         self.chain_map
             .insert(name.clone(), Chain::new(name, default_action))
     }
@@ -248,18 +256,32 @@ impl Table {
     }
     // cтомость перемeщения вектора
     // For Vec<Bar>, that type is a (growable) vector on the heap. The size_of::<Vec<Bar>>() on the other hand is always just 3 * size_of::<usize>(). So that’s how much a move coss.
-    pub fn set_rule(&mut self, mut rule: RawACLRule) {
-        if let Some(v) = self.chain_map.get_mut(&rule.chain) {
-            rule.set_status();
-            rule.set_number(v.rules.len() + 1);
-            v.rules.push(rule.build());
+    pub fn process_acl_rules<'a>(&mut self, values: Vec<d::Value<RawACLRule<'a>>>) {
+        for item in values {
+            match item {
+                d::Value::Value(mut rule) => {
+                    if let Some(v) = self.chain_map.get_mut(&rule.chain) {
+                        rule.set_status();
+                        rule.set_number(v.rules.len() + 1);
+                        v.rules.push(Rule::ACL(rule.build()));
+                    }
+                }
+                d::Value::Error(v) => println!("Error in table part {}", v.as_str()),
+            };
         }
     }
 
-    pub fn process_ruls(&mut self, values: Vec<d::Value<RawACLRule>>) {
+
+    pub fn process_nat_rules<'a>(&mut self, values: Vec<d::Value<RawNATRule<'a>>>) {
         for item in values {
             match item {
-                d::Value::Value(v) => self.set_rule(v),
+                d::Value::Value(mut rule) => {
+                    if let Some(v) = self.chain_map.get_mut(&rule.chain) {
+                        rule.set_status();
+                        rule.set_number(v.rules.len() + 1);
+                        v.rules.push(Rule::NAT(rule.build()));
+                    }
+                }
                 d::Value::Error(v) => println!("Error in table part {}", v.as_str()),
             };
         }

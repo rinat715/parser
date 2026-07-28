@@ -41,6 +41,7 @@ impl Context {
 fn get<'a>(input: &'a str, context: &'a Context) -> PyResult<Vec<Table>> {
     let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context.clone()));
     let (_, rules) = nftables::tables(&ctx)(input).unwrap();
+    println!("ref count = {}", Rc::strong_count(&ctx));
 
     Ok(rules)
 }

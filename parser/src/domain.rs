@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde_derive::Serialize;
 
 pub mod operators;
@@ -14,16 +16,44 @@ pub mod nftables;
 pub mod pythonize;
 pub mod serialize;
 
-use macros::{ToDict, ToStr, ToSerialzeMap};
+use crate::domain::{Bool, Operator};
+use macros::{ToDict, ToSerialzeMap, ToStr};
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParseEnumError; // TODO нормальное название
+#[derive(Debug)]
+pub struct NormalizedActionError {
+    action: Str,
+}
+
+impl NormalizedActionError {
+    fn new(action: &str) -> Self {
+        let action = Str::new(action);
+        Self { action }
+    }
+}
+
+impl fmt::Display for NormalizedActionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "cannot normalize action {:?}", self.action)
+    }
+}
+
+impl std::error::Error for NormalizedActionError {}
 
 pub fn is_empty<T>(values: &Vec<T>) -> bool {
     values.is_empty()
 }
 
-use crate::domain::{Bool, Operator};
+const fn range_operator<T>(operator: bool, f: T, s: T) -> Operator<Bool, T> {
+    let operator = Bool(operator);
+    let value = Tuple::Pair(f, s);
+    Operator { operator, value }
+}
+
+const fn single_operator<T>(operator: bool, value: T) -> Operator<Bool, T> {
+    let operator = Bool(operator);
+    let value = Tuple::Single(value);
+    Operator { operator, value }
+}
 
 // ! --ports 50,300:400
 //
@@ -53,8 +83,6 @@ impl PortOperator {
             (false, false) => (PortType::NotRange, value),
         };
         Self(Operator { operator, value })
-
-        // Self(bool_operator(operator, value))
     }
 }
 
@@ -218,18 +246,6 @@ pub enum IPProtocolOptions {
     Timestamp,
 }
 
-const fn range_operator<T>(operator: bool, f: T, s: T) -> Operator<Bool, T> {
-    let operator = Bool(operator);
-    let value = Tuple::Pair(f, s);
-    Operator { operator, value }
-}
-
-const fn single_operator<T>(operator: bool, value: T) -> Operator<Bool, T> {
-    let operator = Bool(operator);
-    let value = Tuple::Single(value);
-    Operator { operator, value }
-}
-
 impl IPProtocolOptions {
     const ANY_OPERATOR: Operator<Bool, u8> = single_operator(true, 0);
     const LOOSE_SOURCE_ROUTING_OPERATOR: Operator<Bool, u8> = single_operator(true, 131);
@@ -262,11 +278,6 @@ impl IPProtocolOptions {
         }
     }
 }
-
-// eq,gt,lt.
-// ttl (integer: 0..255
-//
-//
 
 #[derive(ToDict, Clone)]
 #[serialize(transparent)]
@@ -418,7 +429,7 @@ impl IPv4Options {
 pub struct ProtocolSetting(Protocol, Option<IPv4Options>);
 
 impl ProtocolSetting {
-    pub fn new<'a>(
+    pub fn new(
         protocol: ProtocolType,
         operator: bool,
         ip_4_options: IPv4Options,
@@ -469,21 +480,6 @@ impl ProtocolSetting {
 impl Default for ProtocolSetting {
     fn default() -> Self {
         Self::string(true, Str::new_static("ip"), IPv4Options::default())
-    }
-}
-
-pub struct ProtocolSettingPair(ProtocolSetting, ProtocolSetting);
-impl ProtocolSettingPair {
-    pub fn new(value: ProtocolSetting, normalized: ProtocolSetting) -> Self {
-        Self(value, normalized)
-    }
-
-    pub fn from_protocol_settings(value: ProtocolSetting) -> Self {
-        Self::new(value.clone(), value)
-    }
-
-    pub fn unpack(self) -> (ProtocolSetting, ProtocolSetting) {
-        (self.0, self.1)
     }
 }
 
@@ -542,15 +538,6 @@ pub enum NormalizedAction {
     RETURN,
 }
 
-pub fn normalized_action<T>(
-    action_setting: &ActionSetting<T>,
-) -> Result<NormalizedAction, ParseEnumError>
-where
-    T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
-{
-    action_setting.action.clone().try_into()
-}
-
 #[derive(Debug, PartialEq, ToDict)]
 pub struct ActionSetting<T> {
     #[serialize(rename = "Action")]
@@ -562,19 +549,67 @@ pub struct ActionSetting<T> {
 impl<T> ActionSetting<T> {
     pub fn new(action: T, option: Option<Str>) -> Self
     where
-        T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
+        T: TryInto<NormalizedAction, Error = NormalizedActionError> + Clone + Default,
     {
         Self { action, option }
     }
+
+    pub fn normalized_action(
+        action_setting: &Self,
+    ) -> Result<NormalizedAction, NormalizedActionError>
+    where
+        T: TryInto<NormalizedAction, Error = NormalizedActionError> + Clone + Default,
+    {
+        action_setting.action.clone().try_into()
+    }
 }
 
-#[derive(Serialize, Default)]
-#[serde(rename_all(serialize = "PascalCase", deserialize = "snake_case"))]
-pub struct NAT {
-    #[serde(skip_serializing_if = "is_empty")]
-    interface_in: Vec<StringOperator>,
-    #[serde(skip_serializing_if = "is_empty")]
-    interface_out: Vec<StringOperator>,
+#[derive(ToDict, ToSerialzeMap)]
+pub struct NAT<T> {
+    #[serialize(rename = "Type")]
+    type_: T,
+    #[serialize(rename = "TranslatedProtocol")]
+    translated_protocol: Vec<ProtocolSetting>,
+    #[serialize(rename = "NormalizedTranslatedProtocol")]
+    normalized_translated_protocol: Vec<ProtocolSetting>,
+    #[serialize(rename = "TranslatedSourceAddress")]
+    translated_source: Vec<EndpointSetting>,
+    #[serialize(rename = "NormalizedTranslatedSourceAddress")]
+    normalized_translated_source: Vec<IPOperator>,
+    #[serialize(rename = "TranslatedDestinationAddress")]
+    translated_destination: Vec<EndpointSetting>,
+    #[serialize(rename = "NormalizedTranslatedDestinationAddress")]
+    normalized_translated_destination: Vec<IPOperator>,
+    #[serialize(rename = "InterfaceIn")]
+    interface_in: Vec<Str>,
+    #[serialize(rename = "InterfaceOut")]
+    interface_out: Vec<Str>,
+}
+
+impl<T> NAT<T> {
+    pub fn new(
+        type_: T,
+        translated_protocol: Vec<ProtocolSetting>,
+        normalized_translated_protocol: Vec<ProtocolSetting>,
+        translated_source: Vec<EndpointSetting>,
+        normalized_translated_source: Vec<IPOperator>,
+        translated_destination: Vec<EndpointSetting>,
+        normalized_translated_destination: Vec<IPOperator>,
+        interface_in: Vec<Str>,
+        interface_out: Vec<Str>,
+    ) -> Self {
+        Self {
+            type_,
+            translated_protocol,
+            normalized_translated_protocol,
+            translated_source,
+            normalized_translated_source,
+            translated_destination,
+            normalized_translated_destination,
+            interface_in,
+            interface_out,
+        }
+    }
 }
 
 #[derive(ToDict, ToSerialzeMap)]
@@ -606,7 +641,7 @@ impl<T> ACL<T> {
         normalized_interface_out: Vec<Str>,
     ) -> Self
     where
-        T: TryInto<NormalizedAction, Error = ParseEnumError> + Clone + Default,
+        T: TryInto<NormalizedAction, Error = NormalizedActionError> + Clone + Default,
     {
         Self {
             action_modifiers,
@@ -621,7 +656,7 @@ impl<T> ACL<T> {
 }
 
 #[derive(ToDict, ToSerialzeMap)]
-pub struct Base {
+pub struct General {
     #[serialize(rename = "LineNumber")]
     line_number: usize,
     #[serialize(rename = "Raw")]
@@ -642,7 +677,7 @@ pub struct Base {
     normalized_destination: Vec<IPOperator>,
 }
 
-impl Base {
+impl General {
     pub fn new(
         line_number: usize,
         raw: Str,
@@ -668,9 +703,9 @@ impl Base {
     }
 }
 
-pub struct ACLRule<T, T1>(Base, T, T1);
-impl<T, T1> ACLRule<T, T1> {
-    pub fn new(base: Base, acl: T, vendor_specific: T1) -> Self {
+pub struct Rule<T, T1>(General, T, T1);
+impl<T, T1> Rule<T, T1> {
+    pub fn new(base: General, acl: T, vendor_specific: T1) -> Self {
         Self(base, acl, vendor_specific)
     }
 }
@@ -679,23 +714,6 @@ impl<T, T1> ACLRule<T, T1> {
 pub enum EndpointSetting {
     IPOperator(IPOperator),
     // TODO ObjectGroup
-}
-
-// значение плюс нормализованное значение
-pub struct EndpointSettingPair(EndpointSetting, IPOperator);
-impl EndpointSettingPair {
-    pub fn new(value: EndpointSetting, normalized: IPOperator) -> Self {
-        Self(value, normalized)
-    }
-
-    pub fn from_ip_operator(value: IPOperator) -> Self {
-        let endpoint_setting = EndpointSetting::IPOperator(value.clone());
-        Self::new(endpoint_setting, value)
-    }
-
-    pub fn unpack(self) -> (EndpointSetting, IPOperator) {
-        (self.0, self.1)
-    }
 }
 
 #[cfg(test)]

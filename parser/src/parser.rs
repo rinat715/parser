@@ -13,32 +13,33 @@ use nom::bytes::complete::take_until1;
 
 use crate::domain::{self as d, Str, StringOperatorBuilder};
 
-// парсеры нельзя клонировать поэтому такая
 fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
     sep: &'static str,
-    f1: F,
-    f2: F,
-    f3: F,
+    f: F,
 ) -> impl Parser<&'a str, Output = d::Tuple<T>, Error = E>
 where
-    F: Parser<&'a str, Output = T, Error = E>,
+    F: Parser<&'a str, Output = T, Error = E> + Copy,
 {
     alt((
-        map(separated_pair(f2, tag(sep), f3), |(f, s)| {
+        map(separated_pair(f, tag(sep), f), |(f, s)| {
             d::Tuple::Pair(f, s)
         }),
-        map(f1, |value| d::Tuple::Single(value)),
+        map(f, |value| d::Tuple::Single(value)),
     ))
 }
 
 pub struct SingleOrPairU16;
 impl SingleOrPairU16 {
     fn parser(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::Tuple<u16>> {
-        move |input: &str| single_or_pair(arg, u16, u16, u16).parse(input)
+        move |input: &str| single_or_pair(arg, u16).parse(input)
     }
 
     pub fn sep_colon(s: &str) -> IResult<&str, d::Tuple<u16>> {
         Self::parser(":").parse(s)
+    }
+
+    pub fn sep_dash(s: &str) -> IResult<&str, d::Tuple<u16>> {
+        Self::parser("-").parse(s)
     }
 }
 
@@ -62,8 +63,10 @@ where
         d::Value::Error(Str::new(v))
     });
 
+    let new_line = map(newline, |v| d::Value::Error(Str::new_static("NEWLINE")));
+
     let value = map(f, |v| d::Value::Value(v));
-    alt((value, err))
+    alt((value, err.or(new_line)))
 }
 
 pub fn separated_by_comma<'a, T, E: ParseError<&'a str>, F>(
@@ -213,7 +216,6 @@ mod tests {
         if let d::Tuple::Single(v) = f {
             assert_eq!(*v, 22)
         }
-
 
         let f = &res[1];
         if let d::Tuple::Single(v) = f {

@@ -56,17 +56,17 @@ enum IPOperatorPrivate {
     IP(IP),
 }
 
-fn range_ip_operator(
-    operator: bool,
-    f: crate::domain::IPAddress,
-    s: crate::domain::IPAddress,
-) -> IPRange {
-    let operator = Range(operator);
-    let value = Tuple::Pair(f, s);
-    Operator { operator, value }
-}
-
 impl IPOperatorPrivate {
+    fn range_ip_operator(
+        operator: bool,
+        f: crate::domain::IPAddress,
+        s: crate::domain::IPAddress,
+    ) -> IPRange {
+        let operator = Range(operator);
+        let value = Tuple::Pair(f, s);
+        Operator { operator, value }
+    }
+
     fn ip4_address(operator: impl Into<bool>, ip: crate::domain::IP, prefix: u8) -> Self {
         Self::Network(single_operator(
             operator.into(),
@@ -83,7 +83,7 @@ impl IPOperatorPrivate {
         operator: impl Into<bool>,
         pair_ip: (crate::domain::IP, crate::domain::IP),
     ) -> Self {
-        Self::IPRange(range_ip_operator(
+        Self::IPRange(Self::range_ip_operator(
             operator.into(),
             IPAddress::new_assert(pair_ip.0, 32),
             IPAddress::new_assert(pair_ip.1, 32),
@@ -141,6 +141,3 @@ impl SetOperator {
         }
     }
 }
-
-
-
