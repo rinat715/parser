@@ -24,6 +24,34 @@ Traceback (most recent call last):
 pyo3_runtime.PanicException: called `Result::unwrap()` on an `Err` value: Error(Error { input: "", code: Many1 })
 ```
 
+#### сборка windows 64
+```bash
+pyenv activate parser
+export PYO3_CROSS_LIB_DIR='/mnt/c/Users/rshaykhetdinov/AppData/Local/Programs/Python/Python36/libs'
+maturin build -r -m parser/Cargo.toml --target x86_64-pc-windows-gnu
+```
+#### сборка windows 32
+
+```bash
+pyenv activate parser
+export PYO3_CROSS_LIB_DIR='/mnt/c/Users/rshaykhetdinov/AppData/Local/Programs/Python/Python36-32/libs'
+maturin build  -m parser/Cargo.toml --target i686-pc-windows-gnu
+```
+
+  -- PYO3_PRINT_CONFIG=1 is set, printing configuration and halting compile --
+  implementation=CPython
+  version=3.6
+  shared=true
+  abi3=true
+  lib_name=python3
+  lib_dir=/mnt/c/Users/rshaykhetdinov/AppData/Local/Programs/Python/Python36-32/libs
+  build_flags=WITH_THREAD
+  suppress_build_script_link_lines=false
+
+
+
+### outdated 
+
 
 extension-module по умолчанию выключен
 
