@@ -9,7 +9,7 @@ name = "parser_rust"
 
 [dependencies]
 log = { version = "0.4" }
-parser_lib = { path = "../parser_lib" }
+parser_lib = { path = "../parser_lib" , features = ["python"] }
 
 [dependencies.pyo3]
 version = "0.15.2"
