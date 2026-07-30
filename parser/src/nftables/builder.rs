@@ -847,7 +847,7 @@ TCPUDPOptions:
     fn test_acl_builder() {
         let interfaces = vec![String::from("swp1"), String::from("swp2")];
 
-        let context = Context::new(interfaces, vec![]);
+        let context = Context::new(interfaces);
 
         let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
 
