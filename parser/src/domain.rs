@@ -39,9 +39,6 @@ impl fmt::Display for NormalizedActionError {
 
 impl std::error::Error for NormalizedActionError {}
 
-pub fn is_empty<T>(values: &Vec<T>) -> bool {
-    values.is_empty()
-}
 
 const fn range_operator<T>(operator: bool, f: T, s: T) -> Operator<Bool, T> {
     let operator = Bool(operator);

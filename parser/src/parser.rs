@@ -63,7 +63,7 @@ where
         d::Value::Error(Str::new(v))
     });
 
-    let new_line = map(newline, |v| d::Value::Error(Str::new_static("NEWLINE")));
+    let new_line = map(newline, |_| d::Value::Error(Str::new_static("NEWLINE")));
 
     let value = map(f, |v| d::Value::Value(v));
     alt((value, err.or(new_line)))
