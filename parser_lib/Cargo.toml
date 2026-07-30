@@ -17,6 +17,7 @@ yaml_serde = "0.10"
 [dependencies.pyo3]
 version = "0.15.2"
 features = ["abi3-py36", "auto-initialize", "extension-module"]
+optional = true
 
 [dev-dependencies]
 diff = { path = "../diff" }
@@ -25,3 +26,6 @@ tester = { path = "../tester" }
 
 [build-dependencies]
 fixtures = "2.5.0"
+
+[features]
+python = ["dep:pyo3"]

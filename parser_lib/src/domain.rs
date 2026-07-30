@@ -13,8 +13,10 @@ pub use generic::*;
 
 pub mod nftables;
 
-pub mod pythonize;
 pub mod serialize;
+#[cfg(feature = "python")]
+pub mod pythonize;
+
 
 use crate::domain::{Bool, Operator};
 use macros::{ToDict, ToSerialzeMap, ToStr};

@@ -1,5 +1,4 @@
 use macros::ToDict;
-use pyo3::prelude::*;
 
 use serde_derive::Serialize;
 
@@ -111,6 +110,10 @@ impl IPOperator {
     }
 }
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+#[cfg(feature = "python")]
 impl<'a> IntoPy<PyObject> for IPOperator {
     fn into_py(self, py: Python) -> PyObject {
         match self.0 {

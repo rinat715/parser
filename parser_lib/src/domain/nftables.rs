@@ -4,7 +4,6 @@ use macros::{ToDict, ToPyDict, ToSerialzeMap, ToStr};
 use serde_derive::Serialize;
 use std::collections::BTreeMap;
 
-use pyo3::prelude::*;
 
 use serde::{Serializer, ser::SerializeSeq};
 
@@ -219,16 +218,36 @@ where
     seq.end()
 }
 
-#[pyclass]
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Serialize, Clone)]
 pub struct Context {
     pub interfaces: Vec<String>,       // TODO tp_traverse?
     pub user_chain_names: Vec<String>, // TODO tp_traverse?
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl Context {
     #[new]
+    pub fn new(interfaces: Vec<String>) -> Self {
+        let user_chain_names = vec![];
+        Self {
+            interfaces,
+            user_chain_names,
+        }
+    }
+
+    pub fn set_user_chain_names(&mut self, values: Vec<String>) {
+        self.user_chain_names = values
+    }
+}
+
+#[cfg(not(feature = "python"))]
+impl Context {
     pub fn new(interfaces: Vec<String>) -> Self {
         let user_chain_names = vec![];
         Self {
