@@ -6,7 +6,7 @@ p = Path("./text.txt")
 t = p.read_text()
 
 
-c = Context(["swp1", "swp2"], [])
+c = Context(["swp1", "swp2"])
 r = get(t, c)
 
 pprint.pprint(r)

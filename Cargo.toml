@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["diff", "macros", "tester", "parser"]
+members = ["diff", "macros", "tester", "parser", "parser_lib"]
