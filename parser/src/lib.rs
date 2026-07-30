@@ -25,15 +25,16 @@ pub struct Context {
 #[pymethods]
 impl Context {
     #[new]
-    pub fn new(interfaces: Vec<String>, user_chain_names: Vec<String>) -> Self {
+    pub fn new(interfaces: Vec<String>) -> Self {
+        let user_chain_names = vec![];
         Self {
             interfaces,
             user_chain_names,
         }
     }
 
-    fn set(&mut self, user_chain_names: Vec<String>) {
-        self.user_chain_names = user_chain_names
+    pub fn set_user_chain_names(&mut self, values: Vec<String>) {
+        self.user_chain_names = values
     }
 }
 
@@ -41,7 +42,6 @@ impl Context {
 fn get<'a>(input: &'a str, context: &'a Context) -> PyResult<Vec<Table>> {
     let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context.clone()));
     let (_, rules) = nftables::tables(&ctx)(input).unwrap();
-    println!("ref count = {}", Rc::strong_count(&ctx));
 
     Ok(rules)
 }

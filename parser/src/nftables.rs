@@ -93,6 +93,16 @@ mod tests {
         );
     }
 
+    fn build_ctx(
+        interfaces: Vec<String>,
+        user_chain_names: Vec<String>,
+    ) -> Rc<std::cell::RefCell<Context>> {
+        let mut context = Context::new(interfaces);
+
+        context.set_user_chain_names(user_chain_names);
+        Rc::new(RefCell::new(context))
+    }
+
     #[fixtures(["acl.yaml"])]
     #[test]
     fn test_rule(path: &std::path::Path) {
@@ -100,12 +110,10 @@ mod tests {
 
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
 
-        let interfaces = vec![String::from("swp1"), String::from("swp2")];
-        let user_chains = vec![String::from("MY_CHAIN")];
-
-        let context = Context::new(interfaces, user_chains);
-
-        let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
+        let ctx = build_ctx(
+            vec![String::from("swp1"), String::from("swp2")],
+            vec![String::from("MY_CHAIN")],
+        );
 
         let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
         for (test_name, value) in map {
@@ -129,12 +137,10 @@ mod tests {
 
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
 
-        let interfaces = vec![String::from("swp1"), String::from("swp2")];
-        let user_chains = vec![String::from("MY_CHAIN")];
-
-        let context = Context::new(interfaces, user_chains);
-
-        let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
+        let ctx = build_ctx(
+            vec![String::from("swp1"), String::from("swp2")],
+            vec![String::from("MY_CHAIN")],
+        );
 
         let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
         for (test_name, value) in map {
@@ -173,12 +179,11 @@ mod tests {
     fn test_table<'a>(path: &std::path::Path) {
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
         let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
+
+        let ctx = build_ctx(vec![String::from("swp1"), String::from("swp2")], vec![]);
+
         for (test_name, value) in map {
             let test: TestSuit = yaml_serde::from_value(value).unwrap();
-
-            let interfaces = vec![String::from("swp1"), String::from("swp2")];
-            let context = Context::new(interfaces, vec![]);
-            let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
 
             let (remaining, result) = table(&ctx)(&test.input).unwrap();
 
@@ -194,12 +199,11 @@ mod tests {
     fn test_nat_table<'a>(path: &std::path::Path) {
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
         let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
+
+        let ctx = build_ctx(vec![String::from("swp1"), String::from("swp2")], vec![]);
+
         for (test_name, value) in map {
             let test: TestSuit = yaml_serde::from_value(value).unwrap();
-
-            let interfaces = vec![String::from("swp1"), String::from("swp2")];
-            let context = Context::new(interfaces, vec![]);
-            let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
 
             let (remaining, result) = nat_table(&ctx)(&test.input).unwrap();
 
@@ -215,13 +219,11 @@ mod tests {
     fn test_tables<'a>(path: &std::path::Path) {
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
         let map: yaml_serde::Mapping = yaml_serde::from_str(&contents).unwrap();
+
+        let ctx = build_ctx(vec![String::from("swp1"), String::from("swp2")], vec![]);
+
         for (test_name, value) in map {
             let test: TestSuit = yaml_serde::from_value(value).unwrap();
-            let interfaces = vec![String::from("swp1"), String::from("swp2")];
-
-            let context = Context::new(interfaces, vec![]);
-
-            let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context));
 
             let (remaining, result) = tables(&ctx)(&test.input).unwrap();
             let test_name = test_name.as_str().unwrap();
@@ -1310,7 +1312,7 @@ macro_rules! impl_table_parser {
                 let user_chain_names = table.process_user_chain(user_chains);
 
                 let mut mut_ctx: RefMut<'_, _> = ctx.borrow_mut();
-                mut_ctx.set(user_chain_names);
+                mut_ctx.set_user_chain_names(user_chain_names);
                 drop(mut_ctx);
 
                 let parser = p::wrap_error_line($rule_parser(ctx));
