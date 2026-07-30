@@ -22,7 +22,6 @@ optional = true
 [dev-dependencies]
 diff = { path = "../diff" }
 fixtures = "2.5.0"
-tester = { path = "../tester" }
 
 [build-dependencies]
 fixtures = "2.5.0"
