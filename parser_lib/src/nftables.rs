@@ -1,8 +1,3 @@
-mod builder;
-
-pub use builder::RawACLRule;
-pub use builder::RawNATRule;
-
 use nom::{
     IResult, Parser,
     branch::alt,
@@ -22,12 +17,13 @@ use std::{
     rc::Rc,
 };
 
-use crate::domain::{
-    self as d, Mapper,
-    nftables::{Chain, ChainName, DefaultAction, Table, UserChain},
+use crate::{
+    domain::{
+        self as d,
+        nftables::{Chain, ChainName, DefaultAction, Table, UserChain},
+    },
+    part::{Address, General, Interface, ProtocolPart},
 };
-
-use builder as b;
 
 use crate::{
     Context,
@@ -39,9 +35,9 @@ use crate::{
 };
 use macros::alt_impl;
 
-type Operator = d::nftables::OperatorType;
-type ActionType = d::nftables::ActionType;
-type ActionSetting = d::nftables::ActionSetting;
+pub type Operator = d::nftables::OperatorType;
+pub type ActionType = d::nftables::ActionType;
+pub type ActionSetting = d::nftables::ActionSetting;
 
 #[cfg(test)]
 mod tests {
@@ -106,7 +102,7 @@ mod tests {
     #[fixtures(["acl.yaml"])]
     #[test]
     fn test_rule(path: &std::path::Path) {
-        use crate::domain::Builder;
+        use crate::builder::Builder;
 
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
 
@@ -133,7 +129,7 @@ mod tests {
     #[fixtures(["nat.yaml"])]
     #[test]
     fn test_nat_rule(path: &std::path::Path) {
-        use crate::domain::Builder;
+        use crate::builder::Builder;
 
         let contents = fs::read_to_string(&path).expect("Should have been able to read the file");
 
@@ -334,11 +330,11 @@ mod tests {
         let (rem, res) = interface("-i")("-i eth1,mgmt").unwrap();
         assert_eq!("", rem);
 
-        if let b::Interface::Value(v) = res.1[0] {
+        if let Interface::Value(v) = res.1[0] {
             assert_eq!(v, "eth1")
         }
 
-        if let b::Interface::Value(v) = res.1[1] {
+        if let Interface::Value(v) = res.1[1] {
             assert_eq!(v, "mgmt")
         }
     }
@@ -784,13 +780,13 @@ fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::PortOperator
 fn ip4_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IPOperator> {
     move |input: &str| {
         let network = map(pair(terminated(p::ip4, tag("/")), u8), |v| {
-            b::Address::Network(v)
+            Address::Network(v)
         });
         // --ctorigsrc 10.10.140.3 prefix равен 32
-        let ip = map(p::ip4, b::Address::IP);
+        let ip = map(p::ip4, Address::IP);
         // 192.168.0.2-192.168.0.100
         let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
-            b::Address::Range(v)
+            Address::Range(v)
         });
 
         map(
@@ -938,10 +934,10 @@ fn set(s: &str) -> IResult<&str, d::SetOperator> {
 // ! -i swp3,swp4
 // eth0,mgmt
 
-fn interface(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (bool, Vec<b::Interface>)> {
+fn interface(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (bool, Vec<Interface>)> {
     move |input: &str| {
-        let mask_parser = map(terminated(alphanumeric1, tag("+")), b::Interface::Mask);
-        let value_parser = map(alphanumeric1, b::Interface::Value);
+        let mask_parser = map(terminated(alphanumeric1, tag("+")), Interface::Mask);
+        let value_parser = map(alphanumeric1, Interface::Value);
 
         let parser = alt((mask_parser, value_parser));
 
@@ -964,10 +960,10 @@ fn address_port(
     move |input: &str| {
         let port = map(SingleOrPairU16::sep_dash, |v| d::PortOperator::new(true, v));
 
-        let ip = map(p::ip4, b::Address::IP);
+        let ip = map(p::ip4, Address::IP);
         // 192.168.0.2-192.168.0.100
         let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
-            b::Address::Range(v)
+            Address::Range(v)
         });
 
         let ip_address = map(alt((range_ip, ip)), |v| v.ip_operator(true));
@@ -984,9 +980,9 @@ fn to_port<'a>(input: &str) -> IResult<&str, d::PortOperator> {
 //
 fn network_mapped_translated_address<'a>(input: &'a str) -> IResult<&'a str, d::IPOperator> {
     let network = map(pair(terminated(p::ip4, tag("/")), u8), |v| {
-        b::Address::Network(v)
+        Address::Network(v)
     });
-    let ip = map(p::ip4, b::Address::IP);
+    let ip = map(p::ip4, Address::IP);
 
     map(preceded_tag_space("--to", alt((network, ip))), |v| {
         v.ip_operator(true)
@@ -994,8 +990,8 @@ fn network_mapped_translated_address<'a>(input: &'a str) -> IResult<&'a str, d::
     .parse(input)
 }
 
-fn protocol_setting(input: &str) -> IResult<&str, b::ProtocolPart<Operator>> {
-    type PROTOCOL = b::ProtocolPart<Operator>; // TODO fix alt_impl full path
+fn protocol_setting(input: &str) -> IResult<&str, ProtocolPart<Operator>> {
+    type PROTOCOL = ProtocolPart<Operator>; // TODO fix alt_impl full path
     alt_impl!(
         PROTOCOL,
         "Ports" = port("--ports"),
@@ -1012,8 +1008,7 @@ fn protocol_setting(input: &str) -> IResult<&str, b::ProtocolPart<Operator>> {
     .parse(input)
 }
 
-fn general_parser(input: &str) -> IResult<&str, b::General> {
-    type General = b::General;
+fn general_parser(input: &str) -> IResult<&str, General> {
     let dst = alt((
         ip4_address("-d"),
         ip4_address("--dst-range"),
@@ -1030,9 +1025,12 @@ fn general_parser(input: &str) -> IResult<&str, b::General> {
 
 mod acl {
     use super::*;
+    use crate::{
+        builder::{Mapper, nftables::RawACLRule},
+        part::nftables::{ACL, ACLRule, Vendor},
+    };
 
-    fn acl_option<'a>(input: &'a str) -> IResult<&'a str, b::ACL<'a>> {
-        type ACL<'a> = b::ACL<'a>;
+    fn acl_option<'a>(input: &'a str) -> IResult<&'a str, ACL<'a>> {
         alt_impl!(
             ACL,
             "Action" = map_parser(tag_value("-j"), action_type)
@@ -1047,15 +1045,13 @@ mod acl {
         .parse(input)
     }
 
-    fn vendor(input: &str) -> IResult<&str, b::Vendor> {
-        type Vendor = b::Vendor;
+    fn vendor(input: &str) -> IResult<&str, Vendor> {
         alt_impl!(Vendor, "Ctstate" = ctstate, "Sets" = set).parse(input)
     }
 
-    fn option<'a>(input: &'a str) -> IResult<&'a str, b::Rule<'a, b::ACL<'a>>> {
-        type ACL<'a> = b::Rule<'a, b::ACL<'a>>;
+    fn option<'a>(input: &'a str) -> IResult<&'a str, ACLRule> {
         alt_impl!(
-            ACL,
+            ACLRule,
             "Protocol" = protocol_setting,
             "General" = general_parser,
             "Extended" = acl_option,
@@ -1077,7 +1073,7 @@ mod acl {
             let mut rule_parser = fold_many1(
                 option,
                 || RawACLRule::new(ctx, row, chain),
-                |mut acc, item: b::Rule<'a, b::ACL<'a>>| {
+                |mut acc, item| {
                     acc.mapping(item);
                     acc
                 },
@@ -1091,6 +1087,7 @@ mod acl {
 
 mod nat {
     use super::*;
+    use crate::{builder::{Mapper, nftables::RawNATRule}, part::nftables::{NAT, NATRule, Vendor}};
 
     fn type_(input: &str) -> IResult<&str, d::nftables::NATType> {
         alt((
@@ -1104,8 +1101,7 @@ mod nat {
         .parse(input)
     }
 
-    fn nat_option<'a>(input: &'a str) -> IResult<&'a str, b::NAT<'a>> {
-        type NAT<'a> = b::NAT<'a>;
+    fn nat_option<'a>(input: &'a str) -> IResult<&'a str, NAT<'a>> {
         alt_impl!(
             NAT,
             "Type" = map_parser(tag_value("-j"), type_),
@@ -1120,8 +1116,7 @@ mod nat {
         .parse(input)
     }
 
-    fn extended(input: &str) -> IResult<&str, b::Vendor> {
-        type Vendor = b::Vendor;
+    fn extended(input: &str) -> IResult<&str, Vendor> {
         alt_impl!(
             Vendor,
             "Ctstate" = ctstate,
@@ -1131,10 +1126,9 @@ mod nat {
         .parse(input)
     }
 
-    fn option<'a>(input: &'a str) -> IResult<&'a str, b::Rule<'a, b::NAT<'a>>> {
-        type NAT<'a> = b::Rule<'a, b::NAT<'a>>;
+    fn option<'a>(input: &'a str) -> IResult<&'a str, NATRule> {
         alt_impl!(
-            NAT,
+            NATRule,
             "Protocol" = protocol_setting,
             "General" = general_parser,
             "Extended" = nat_option,
@@ -1156,7 +1150,7 @@ mod nat {
             let mut rule_parser = fold_many1(
                 option,
                 || RawNATRule::new(ctx, row, chain),
-                |mut acc, item: b::Rule<'a, b::NAT<'a>>| {
+                |mut acc, item| {
                     acc.mapping(item);
                     acc
                 },

@@ -1,5 +1,4 @@
-use crate::domain::{self as d, Builder, EnumToStr};
-use crate::nftables::{RawACLRule, RawNATRule};
+use crate::{builder::{Builder, nftables::{RawACLRule, RawNATRule}}, domain::{self as d, EnumToStr}};
 use macros::{ToDict, ToPyDict, ToSerialzeMap, ToStr};
 use serde_derive::Serialize;
 use std::collections::BTreeMap;

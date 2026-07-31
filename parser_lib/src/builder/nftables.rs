@@ -1,222 +1,11 @@
-use serde_derive::Serialize;
-
-use crate::domain::generic::Builder;
-use crate::domain::nftables::NATType;
-use crate::domain::{Mapper, ProtocolType, generic};
+use crate::builder::{Builder, DirectionBuilder, GeneralBuilder, Mapper, ProtocolSettingBuilder};
+use crate::domain as d;
+use crate::part::nftables::{ACL, ACLRule, NAT, NATRule, Vendor};
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{
-    Context, domain as d,
-    nftables::{ActionSetting, ActionType, Operator},
-};
-
-#[derive(Serialize)]
-pub enum Address {
-    Network((d::IP, u8)),
-    IP(d::IP),
-    Range((d::IP, d::IP)),
-}
-
-impl Address {
-    pub fn ip_operator<T>(self, operator: T) -> d::IPOperator
-    where
-        bool: From<T>,
-    {
-        match self {
-            Self::Network((ip, prefix)) => d::IPOperator::ip4_address(operator, ip, prefix),
-            Self::IP(ip) => d::IPOperator::ip(operator, ip),
-            Self::Range((f, s)) => d::IPOperator::ip_range(operator, (f, s)),
-        }
-    }
-}
-
-pub enum ProtocolPart<T> {
-    DestinationPorts(Vec<d::PortOperator>),
-    Ports(Vec<d::PortOperator>),
-    Protocol((T, d::ProtocolType)),
-    SourcePorts(Vec<d::PortOperator>),
-    TCPFlags((d::FlagOperator, d::FlagOperator)),
-    TTL(d::TTL),
-    Fragment(d::Fragment),
-    DSCP(d::DSCP),
-    PacketLength(d::PacketLength),
-    IPProtocolOption(d::IPProtocolOptions),
-}
-
-#[derive(Default)]
-pub struct ProtocolSettingBuilder {
-    //protocol
-    operator: bool,
-    protocol: d::ProtocolType,
-    // ports
-    source: Vec<d::PortOperator>,
-    destination: Vec<d::PortOperator>,
-    // translated ports
-    translated_source: Vec<d::PortOperator>,
-    translated_destination: Vec<d::PortOperator>,
-    tcp_flags: Vec<d::FlagOperator>,
-    // ip_v4_options
-    fragments: Option<d::Fragment>,
-    dscp: Option<d::DSCP>,
-    options: Vec<d::IPProtocolOptions>,
-    ttl: Option<d::TTL>,
-    length: Option<d::PacketLength>,
-}
-
-impl<T> generic::Mapper<ProtocolPart<T>> for ProtocolSettingBuilder
-where
-    bool: From<T>,
-{
-    fn mapping(&mut self, item: ProtocolPart<T>) {
-        match item {
-            // protocol
-            ProtocolPart::Protocol((operator, protocol)) => self.set_protocol(operator, protocol),
-            // ports
-            ProtocolPart::DestinationPorts(v) => self.destination.extend(v),
-            ProtocolPart::SourcePorts(v) => self.source.extend(v),
-            ProtocolPart::Ports(v) => {
-                self.source.extend(v.clone());
-                self.destination.extend(v);
-            }
-            // ip4 options
-            ProtocolPart::Fragment(v) => self.fragments = Some(v),
-            ProtocolPart::DSCP(v) => self.dscp = Some(v),
-            ProtocolPart::PacketLength(v) => self.length = Some(v),
-            ProtocolPart::IPProtocolOption(v) => self.options.push(v),
-            ProtocolPart::TCPFlags(v) => self.tcp_flags = vec![v.0, v.1],
-            ProtocolPart::TTL(v) => self.ttl = Some(v),
-        }
-    }
-}
-
-impl generic::Builder<d::ProtocolSetting> for ProtocolSettingBuilder {
-    fn build(self) -> d::ProtocolSetting {
-        let ip_4_options = d::IPv4Options::new(
-            self.fragments,
-            self.dscp,
-            self.options,
-            self.ttl,
-            self.length,
-        );
-
-        d::ProtocolSetting::new(
-            self.protocol,
-            self.operator,
-            ip_4_options,
-            self.source,
-            self.destination,
-            self.tcp_flags,
-        )
-    }
-}
-
-impl generic::Builder<(d::ProtocolSetting, d::ProtocolSetting)> for ProtocolSettingBuilder {
-    fn build(self) -> (d::ProtocolSetting, d::ProtocolSetting) {
-        let ip_4_options = d::IPv4Options::new(
-            self.fragments.clone(),
-            self.dscp.clone(),
-            self.options.clone(),
-            self.ttl.clone(),
-            self.length.clone(),
-        );
-
-        let translated = d::ProtocolSetting::new(
-            self.protocol.clone(),
-            self.operator.clone(),
-            ip_4_options,
-            self.translated_source.clone(),
-            self.translated_destination.clone(),
-            self.tcp_flags.clone(),
-        );
-        (Builder::build(self), translated)
-    }
-}
-
-impl ProtocolSettingBuilder {
-    pub fn new() -> Self {
-        Self {
-            operator: true,
-            protocol: ProtocolType::String(d::Str::new_static("ip")),
-            ..Default::default()
-        }
-    }
-
-    fn set_protocol(&mut self, operator: impl Into<bool>, kind: d::ProtocolType) {
-        self.operator = operator.into();
-        self.protocol = kind;
-    }
-
-    fn set_translated_source(&mut self, value: d::PortOperator) {
-        self.translated_source.push(value)
-    }
-
-    fn set_translated_destination(&mut self, value: d::PortOperator) {
-        self.translated_destination.push(value)
-    }
-}
-
-pub enum General {
-    Raw(d::Str),
-    Source(d::IPOperator),
-    Destination(d::IPOperator),
-}
-
-impl General {
-    pub fn raw(value: &str) -> Self {
-        Self::Raw(d::Str::new(value))
-    }
-}
-
-#[derive(Default)]
-pub struct GeneralBuilder {
-    line_number: usize,
-    raw: d::Str,
-    status: bool,
-    protocol: Vec<d::ProtocolSetting>,
-    normalized_protocol: Vec<d::ProtocolSetting>,
-    source: DirectionBuilder,
-    destination: DirectionBuilder,
-}
-
-impl generic::Mapper<General> for GeneralBuilder {
-    fn mapping(&mut self, item: General) {
-        match item {
-            General::Destination(v) => self.destination.push(v),
-            General::Source(v) => self.source.push(v),
-            General::Raw(v) => self.raw = v,
-        }
-    }
-}
-
-impl generic::Builder<d::General> for GeneralBuilder {
-    fn build(self) -> d::General {
-        d::General::new(
-            self.line_number,
-            self.raw,
-            self.status,
-            self.protocol,
-            self.normalized_protocol,
-            self.source.value,
-            self.source.normalized,
-            self.destination.value,
-            self.destination.normalized,
-        )
-    }
-}
-
-impl GeneralBuilder {
-    fn protocol_setting(&mut self, value: d::ProtocolSetting) {
-        self.protocol.push(value.clone());
-        self.normalized_protocol.push(value);
-    }
-    pub fn set_number(&mut self, number: usize) {
-        self.line_number = number;
-    }
-
-    pub fn set_status(&mut self, value: bool) {
-        self.status = value;
-    }
-}
+use crate::domain::nftables::{Context, NATType};
+use crate::nftables::{ActionSetting, ActionType};
+use crate::part::Interface;
 
 pub struct InterfaceNormalizator<'a> {
     ctx: &'a Rc<RefCell<Context>>,
@@ -235,24 +24,6 @@ impl<'a> InterfaceNormalizator<'a> {
             .cloned()
             .collect()
     }
-}
-
-#[derive(Default)]
-struct DirectionBuilder {
-    value: Vec<d::EndpointSetting>,
-    normalized: Vec<d::IPOperator>,
-}
-
-impl DirectionBuilder {
-    fn push(&mut self, value: d::IPOperator) {
-        self.normalized.push(value.clone());
-        self.value.push(d::EndpointSetting::IPOperator(value))
-    }
-}
-
-pub enum Interface<'a> {
-    Value(&'a str),
-    Mask(&'a str),
 }
 
 #[derive(Default)]
@@ -301,7 +72,7 @@ struct ActionBuilder<'a> {
 }
 
 impl<'a>
-    generic::Builder<(
+    Builder<(
         Vec<ActionSetting>,
         Vec<ActionSetting>,
         Option<d::NormalizedAction>,
@@ -391,28 +162,6 @@ impl<'a> ActionBuilder<'a> {
     }
 }
 
-pub enum ACL<'a> {
-    Action(ActionType),
-    Jump(&'a str),
-    Goto(&'a str),
-    RejectWith(&'a str),
-    LogLevel(d::ActionSetting<ActionType>),
-    ActionModifier(d::ActionSetting<ActionType>),
-    InterfaceIn((bool, Vec<Interface<'a>>)),
-    InterfaceOut((bool, Vec<Interface<'a>>)),
-}
-
-pub enum NAT<'a> {
-    Type(d::nftables::NATType),
-    Jump(&'a str),
-    Goto(&'a str),
-    InterfaceIn((bool, Vec<Interface<'a>>)),
-    InterfaceOut((bool, Vec<Interface<'a>>)),
-    TranslatedSource((d::IPOperator, Option<d::PortOperator>)),
-    TranslatedDestination((d::IPOperator, Option<d::PortOperator>)),
-    TranslatedPort(d::PortOperator),
-}
-
 pub struct NATBuilder<'a> {
     ctx: &'a Rc<RefCell<Context>>,
     type_: NATType,
@@ -470,7 +219,7 @@ impl<'a> NATBuilder<'a> {
     }
 }
 
-impl<'a> generic::Mapper<NAT<'a>> for NATBuilder<'a> {
+impl<'a> Mapper<NAT<'a>> for NATBuilder<'a> {
     fn mapping(&mut self, item: NAT<'a>) {
         match item {
             NAT::Type(v) => self.type_ = v,
@@ -493,7 +242,7 @@ impl<'a> generic::Mapper<NAT<'a>> for NATBuilder<'a> {
     }
 }
 
-impl<'a> generic::Builder<d::NAT<d::nftables::NATType>> for NATBuilder<'a> {
+impl<'a> Builder<d::NAT<d::nftables::NATType>> for NATBuilder<'a> {
     fn build(self) -> d::NAT<d::nftables::NATType> {
         d::NAT::new(
             self.type_,
@@ -517,7 +266,7 @@ pub struct ACLBuilder<'a> {
     interface_out: InterfaceBuilder,
 }
 
-impl<'a> generic::Mapper<ACL<'a>> for ACLBuilder<'a> {
+impl<'a> Mapper<ACL<'a>> for ACLBuilder<'a> {
     fn mapping(&mut self, item: ACL<'a>) {
         match item {
             // action
@@ -533,7 +282,7 @@ impl<'a> generic::Mapper<ACL<'a>> for ACLBuilder<'a> {
     }
 }
 
-impl<'a> generic::Builder<d::ACL<ActionType>> for ACLBuilder<'a> {
+impl<'a> Builder<d::ACL<ActionType>> for ACLBuilder<'a> {
     fn build(self) -> d::ACL<ActionType> {
         let (action_setting, action_modifiers, normalized_action) = self.action.build();
 
@@ -560,12 +309,6 @@ impl<'a> ACLBuilder<'a> {
     }
 }
 
-pub enum Vendor {
-    Ctstate(Vec<d::StringOperator>),
-    Sets(d::SetOperator),
-    NetworkMappedTranslatedAddress(d::IPOperator),
-}
-
 #[derive(Default)]
 pub struct VendorBuilder {
     connection_states: Vec<d::StringOperator>,
@@ -580,7 +323,7 @@ impl VendorBuilder {
     }
 }
 
-impl generic::Mapper<Vendor> for VendorBuilder {
+impl Mapper<Vendor> for VendorBuilder {
     fn mapping(&mut self, item: Vendor) {
         match item {
             // vendor
@@ -593,13 +336,13 @@ impl generic::Mapper<Vendor> for VendorBuilder {
     }
 }
 
-impl generic::Builder<d::nftables::ACLExtended> for VendorBuilder {
+impl Builder<d::nftables::ACLExtended> for VendorBuilder {
     fn build(self) -> d::nftables::ACLExtended {
         d::nftables::ACLExtended::new(self.connection_states, self.sets)
     }
 }
 
-impl generic::Builder<d::nftables::NATExtended> for VendorBuilder {
+impl Builder<d::nftables::NATExtended> for VendorBuilder {
     fn build(self) -> d::nftables::NATExtended {
         d::nftables::NATExtended::new(
             self.connection_states,
@@ -620,6 +363,9 @@ pub struct RawRule<T> {
     pub chain: d::Str,
 }
 
+pub type RawACLRule<'a> = RawRule<ACLBuilder<'a>>;
+pub type RawNATRule<'a> = RawRule<NATBuilder<'a>>;
+
 impl<T> RawRule<T> {
     pub fn set_number(&mut self, number: usize) {
         self.general.set_number(number);
@@ -630,14 +376,14 @@ impl<T> RawRule<T> {
     }
 }
 
-impl<'a> generic::Mapper<Rule<'a, NAT<'a>>> for RawRule<NATBuilder<'a>> {
-    fn mapping(&mut self, item: Rule<'a, NAT<'a>>) {
+impl<'a> Mapper<NATRule<'a>> for RawNATRule<'a> {
+    fn mapping(&mut self, item: NATRule<'a>) {
         match item {
-            Rule::Error(v) => println!("Error: {:?}", v),
-            Rule::Space => (),
-            Rule::Protocol(protocol) => self.protocol.mapping(protocol),
-            Rule::General(v) => self.general.mapping(v),
-            Rule::Extended(v) => {
+            NATRule::Error(v) => println!("Error: {:?}", v),
+            NATRule::Space => (),
+            NATRule::Protocol(protocol) => self.protocol.mapping(protocol),
+            NATRule::General(v) => self.general.mapping(v),
+            NATRule::Extended(v) => {
                 if let NAT::TranslatedSource((address, port)) = v {
                     self.extended.translated_source(address);
 
@@ -672,13 +418,13 @@ impl<'a> generic::Mapper<Rule<'a, NAT<'a>>> for RawRule<NATBuilder<'a>> {
                 self.extended.mapping(v);
             }
 
-            Rule::Vendor(v) => self.vendor.mapping(v),
+            NATRule::Vendor(v) => self.vendor.mapping(v),
         };
     }
 }
 
-impl<'a> generic::Builder<d::Rule<d::NAT<d::nftables::NATType>, d::nftables::NATExtended>>
-    for RawRule<NATBuilder<'a>>
+impl<'a> Builder<d::Rule<d::NAT<d::nftables::NATType>, d::nftables::NATExtended>>
+    for RawNATRule<'a>
 {
     fn build(mut self) -> d::Rule<d::NAT<d::nftables::NATType>, d::nftables::NATExtended> {
         let (protocol, translated_protocol) = self.protocol.build();
@@ -698,21 +444,21 @@ impl<'a> generic::Builder<d::Rule<d::NAT<d::nftables::NATType>, d::nftables::NAT
     }
 }
 
-impl<'a> generic::Mapper<Rule<'a, ACL<'a>>> for RawRule<ACLBuilder<'a>> {
-    fn mapping(&mut self, item: Rule<'a, ACL<'a>>) {
+impl<'a> Mapper<ACLRule<'a>> for RawACLRule<'a> {
+    fn mapping(&mut self, item: ACLRule<'a>) {
         match item {
-            Rule::Error(v) => println!("Error: {:?}", v),
-            Rule::Space => (),
-            Rule::Protocol(protocol) => self.protocol.mapping(protocol),
-            Rule::General(v) => self.general.mapping(v),
-            Rule::Extended(v) => self.extended.mapping(v),
-            Rule::Vendor(v) => self.vendor.mapping(v),
+            ACLRule::Error(v) => println!("Error: {:?}", v),
+            ACLRule::Space => (),
+            ACLRule::Protocol(protocol) => self.protocol.mapping(protocol),
+            ACLRule::General(v) => self.general.mapping(v),
+            ACLRule::Extended(v) => self.extended.mapping(v),
+            ACLRule::Vendor(v) => self.vendor.mapping(v),
         };
     }
 }
 
-impl<'a> generic::Builder<d::Rule<d::ACL<ActionType>, d::nftables::ACLExtended>>
-    for RawRule<ACLBuilder<'a>>
+impl<'a> Builder<d::Rule<d::ACL<ActionType>, d::nftables::ACLExtended>>
+    for RawACLRule<'a>
 {
     fn build(mut self) -> d::Rule<d::ACL<ActionType>, d::nftables::ACLExtended> {
         self.general.protocol_setting(self.protocol.build());
@@ -725,10 +471,10 @@ impl<'a> generic::Builder<d::Rule<d::ACL<ActionType>, d::nftables::ACLExtended>>
     }
 }
 
-impl<'a> RawRule<ACLBuilder<'a>> {
+impl<'a>RawACLRule<'a> {
     pub fn new(ctx: &'a Rc<RefCell<Context>>, row: &'a str, chain: &'a str) -> Self {
         let mut rule = GeneralBuilder::default();
-        rule.mapping(General::raw(row));
+        rule.set_raw(row);
 
         Self {
             protocol: ProtocolSettingBuilder::new(),
@@ -740,10 +486,10 @@ impl<'a> RawRule<ACLBuilder<'a>> {
     }
 }
 
-impl<'a> RawRule<crate::nftables::builder::NATBuilder<'a>> {
+impl<'a> RawNATRule<'a> {
     pub fn new(ctx: &'a Rc<RefCell<Context>>, row: &str, chain: &str) -> Self {
         let mut rule = GeneralBuilder::default();
-        rule.mapping(General::raw(row));
+                rule.set_raw(row);
 
         Self {
             protocol: ProtocolSettingBuilder::new(),
@@ -755,93 +501,11 @@ impl<'a> RawRule<crate::nftables::builder::NATBuilder<'a>> {
     }
 }
 
-pub type RawACLRule<'a> = RawRule<crate::nftables::builder::ACLBuilder<'a>>;
-pub type RawNATRule<'a> = RawRule<crate::nftables::builder::NATBuilder<'a>>;
 
-pub enum Rule<'a, T> {
-    Protocol(ProtocolPart<Operator>),
-    General(General),
-    Extended(T),
-    Vendor(Vendor),
-    Error(&'a str),
-    Space,
-}
-
-impl<'a, T> Rule<'a, T> {
-    pub fn space(_: &'a str) -> Self {
-        Rule::Space
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_protocol_setting_builder() {
-        let mut b = ProtocolSettingBuilder::new();
-
-        b.set_protocol(true, d::ProtocolType::TCP);
-
-        let protocol: d::ProtocolSetting = b.build();
-
-        let expected = r#"ProtocolNumber:
-  Operator: eq
-  Values:
-  - 6
-"#;
-        let actual = yaml_serde::to_string(&protocol).unwrap();
-
-        assert_eq!(
-            expected,
-            actual,
-            "{}",
-            diff::Diff::new("None", "test_protocol_setting_builder", &actual, &expected)
-        )
-    }
-
-    #[test]
-    fn test_protocol_setting_builder_tcp_options() {
-        let mut b = ProtocolSettingBuilder::new();
-
-        b.set_protocol(true, d::ProtocolType::TCP);
-
-        b.source = vec![d::PortOperator::new(true, d::Tuple::Single(1))];
-
-        b.destination = vec![d::PortOperator::new(false, d::Tuple::Pair(1, 2))];
-
-        let protocol: d::ProtocolSetting = b.build();
-
-        let expected = r#"ProtocolNumber:
-  Operator: eq
-  Values:
-  - 6
-TCPUDPOptions:
-  SourcePorts:
-  - Operator: eq
-    Values:
-    - 1
-  DestinationPorts:
-  - Operator: nrange
-    Values:
-    - 1
-    - 2
-  Flags: []
-"#;
-        let actual = yaml_serde::to_string(&protocol).unwrap();
-
-        assert_eq!(
-            expected,
-            actual,
-            "{}",
-            diff::Diff::new(
-                "None",
-                "test_protocol_setting_builder_tcp_options",
-                &actual,
-                &expected
-            )
-        )
-    }
 
     #[test]
     fn test_acl_builder() {

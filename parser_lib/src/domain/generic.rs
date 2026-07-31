@@ -7,13 +7,7 @@ pub trait EnumToStr {
 }
 
 
-pub trait Builder<T> {
-    fn build(self) -> T;
-}
 
-pub trait Mapper<T> {
-    fn mapping(&mut self, item: T);
-}
 
 pub fn bool_operator<T>(operator: impl Into<bool>, value: Tuple<T>) -> Operator<Bool, T> {
     let operator = Bool(operator.into());
