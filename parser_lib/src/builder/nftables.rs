@@ -423,10 +423,8 @@ impl<'a> Mapper<NATRule<'a>> for RawNATRule<'a> {
     }
 }
 
-impl<'a> Builder<d::Rule<d::NAT<d::nftables::NATType>, d::nftables::NATExtended>>
-    for RawNATRule<'a>
-{
-    fn build(mut self) -> d::Rule<d::NAT<d::nftables::NATType>, d::nftables::NATExtended> {
+impl<'a> Builder<d::nftables::NATRule> for RawNATRule<'a> {
+    fn build(mut self) -> d::nftables::NATRule {
         let (protocol, translated_protocol) = self.protocol.build();
         if self.extended.is_translated_to_destination() || self.extended.is_translated_to_source() {
             self.extended
@@ -457,10 +455,8 @@ impl<'a> Mapper<ACLRule<'a>> for RawACLRule<'a> {
     }
 }
 
-impl<'a> Builder<d::Rule<d::ACL<ActionType>, d::nftables::ACLExtended>>
-    for RawACLRule<'a>
-{
-    fn build(mut self) -> d::Rule<d::ACL<ActionType>, d::nftables::ACLExtended> {
+impl<'a> Builder<d::nftables::ACLRule> for RawACLRule<'a> {
+    fn build(mut self) -> d::nftables::ACLRule {
         self.general.protocol_setting(self.protocol.build());
 
         d::Rule::new(
@@ -471,7 +467,7 @@ impl<'a> Builder<d::Rule<d::ACL<ActionType>, d::nftables::ACLExtended>>
     }
 }
 
-impl<'a>RawACLRule<'a> {
+impl<'a> RawACLRule<'a> {
     pub fn new(ctx: &'a Rc<RefCell<Context>>, row: &'a str, chain: &'a str) -> Self {
         let mut rule = GeneralBuilder::default();
         rule.set_raw(row);
@@ -489,7 +485,7 @@ impl<'a>RawACLRule<'a> {
 impl<'a> RawNATRule<'a> {
     pub fn new(ctx: &'a Rc<RefCell<Context>>, row: &str, chain: &str) -> Self {
         let mut rule = GeneralBuilder::default();
-                rule.set_raw(row);
+        rule.set_raw(row);
 
         Self {
             protocol: ProtocolSettingBuilder::new(),
@@ -500,8 +496,6 @@ impl<'a> RawNATRule<'a> {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

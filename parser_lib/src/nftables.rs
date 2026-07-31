@@ -1049,7 +1049,7 @@ mod acl {
         alt_impl!(Vendor, "Ctstate" = ctstate, "Sets" = set).parse(input)
     }
 
-    fn option<'a>(input: &'a str) -> IResult<&'a str, ACLRule> {
+    fn option<'a>(input: &'a str) -> IResult<&'a str, ACLRule<'a>> {
         alt_impl!(
             ACLRule,
             "Protocol" = protocol_setting,
@@ -1126,7 +1126,7 @@ mod nat {
         .parse(input)
     }
 
-    fn option<'a>(input: &'a str) -> IResult<&'a str, NATRule> {
+    fn option<'a>(input: &'a str) -> IResult<&'a str, NATRule<'a>> {
         alt_impl!(
             NATRule,
             "Protocol" = protocol_setting,
