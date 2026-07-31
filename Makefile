@@ -12,9 +12,18 @@ endif
 all:
 	cargo build
 
+
+.PHONY: test
+
 test:
 	cargo test
+
+.PHONY: develop
 
 develop: check-env
 	maturin develop -m parser/Cargo.toml
 
+.PHONY: clean
+
+clean:
+	cargo clean

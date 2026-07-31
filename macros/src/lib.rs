@@ -101,6 +101,7 @@ pub fn to_py_dict(input: TokenStream) -> TokenStream {
 
     let mapping = quote! {
         #[automatically_derived]
+        #[cfg(feature = "python")]
         impl #impl_generics pyo3::prelude::IntoPy<pyo3::prelude::PyObject> for #name #ty_generics {
             fn into_py(self, py: pyo3::prelude::Python) -> pyo3::prelude::PyObject {
                 let l = pyo3::types::PyList::new(

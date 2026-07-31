@@ -4,9 +4,12 @@ use std::net::{IpAddr, Ipv4Addr};
 use ipnet::IpNet;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
+#[cfg(feature = "python")]
 use pyo3::types::{PyDict, PyList};
 
+#[cfg(feature = "python")]
 use crate::domain::pythonize::tuple;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -79,6 +82,7 @@ impl Serialize for IPAddress {
     }
 }
 
+#[cfg(feature = "python")]
 impl<'a> IntoPy<PyObject> for IPAddress {
     fn into_py(self, py: Python) -> PyObject {
 

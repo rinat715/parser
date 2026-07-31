@@ -1,0 +1,30 @@
+[package]
+name = "parser_lib"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+ipnet = "2.11.0"
+log = { version = "0.4" }
+macros = { path = "../macros" }
+nom = "8.0.0"
+serde = "1.0.219"
+serde_derive = "1.0.219"
+smol_str = { version = "0.3.6", features = ["serde"] }
+yaml_serde = "0.10"
+
+[dependencies.pyo3]
+version = "0.15.2"
+features = ["abi3-py36", "auto-initialize", "extension-module"]
+optional = true
+
+[dev-dependencies]
+diff = { path = "../diff" }
+fixtures = "2.5.0"
+
+[build-dependencies]
+fixtures = "2.5.0"
+
+[features]
+python = ["dep:pyo3"]

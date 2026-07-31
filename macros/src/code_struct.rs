@@ -407,6 +407,7 @@ impl TryFrom<&syn::Data> for EnumVariants {
 fn serialize_for_str(name: &Ident) -> proc_macro2::TokenStream {
     quote! {
         #[automatically_derived]
+        #[cfg(feature = "python")]
         impl crate::domain::pythonize::ToPyString for #name {
             fn to_py_str(self, py: pyo3::prelude::Python) -> &'_ pyo3::types::PyString
             where
@@ -419,6 +420,7 @@ fn serialize_for_str(name: &Ident) -> proc_macro2::TokenStream {
         }
 
         #[automatically_derived]
+        #[cfg(feature = "python")]
         impl pyo3::prelude::IntoPy<pyo3::prelude::PyObject> for #name {
             fn into_py(self, py: pyo3::prelude::Python) -> pyo3::prelude::PyObject {
                 use crate::domain::pythonize::ToPyString;
@@ -554,6 +556,7 @@ fn serialize_py_for_dict(
 
     quote! {
         #[automatically_derived]
+        #[cfg(feature = "python")]
         impl #impl_generics pyo3::prelude::IntoPy<pyo3::prelude::PyObject> for #name #ty_generics {
             fn into_py(self, py: pyo3::prelude::Python) -> pyo3::prelude::PyObject {
                 use pyo3::types::IntoPyDict;
@@ -562,6 +565,7 @@ fn serialize_py_for_dict(
         }
 
         #[automatically_derived]
+        #[cfg(feature = "python")]
         impl #impl_generics pyo3::types::IntoPyDict for #name #ty_generics #where_clause {
             fn into_py_dict(self, py: pyo3::prelude::Python<'_>) -> &'_ pyo3::types::PyDict {
                 use pyo3::types::IntoPyDict;
@@ -597,6 +601,7 @@ fn serialize_transparent(name: &Ident, generics: Generics) -> proc_macro2::Token
 
     quote! {
         #[automatically_derived]
+        #[cfg(feature = "python")]
         impl #impl_generics pyo3::prelude::IntoPy<pyo3::prelude::PyObject> for #name #ty_generics {
             fn into_py(self, py: pyo3::prelude::Python) -> pyo3::prelude::PyObject {
                 self.0.into_py(py)
