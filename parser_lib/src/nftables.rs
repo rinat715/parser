@@ -5,7 +5,7 @@ use nom::{
     character::complete::{
         alpha1, alphanumeric1, hex_digit1, line_ending, newline, not_line_ending, space1, u8,
     },
-    combinator::{eof, map, map_parser, not, opt, peek, recognize, rest_len, value},
+    combinator::{eof, into, map, map_parser, not, opt, peek, recognize, rest_len, value},
     multi::{fold_many1, many1},
     sequence::{pair, preceded, separated_pair, terminated},
 };
@@ -829,9 +829,9 @@ fn tcp_flags(s: &str) -> IResult<&str, (d::FlagOperator, d::FlagOperator)> {
 
 fn protocol<'a>(s: &'_ str) -> IResult<&'_ str, (Operator, d::ProtocolType)> {
     let protocol = alt((
-        value(d::ProtocolType::from("ip"), alt((tag("0"), tag("all")))),
-        map(alpha1, d::ProtocolType::from),
-        map(u8, d::ProtocolType::from),
+        value(d::ProtocolType::default(), alt((tag("0"), tag("all")))),
+        into(alpha1),
+        into(u8),
     ));
 
     pair(operator, preceded_tag_space("-p", protocol)).parse(s)

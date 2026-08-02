@@ -22,6 +22,13 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 Traceback (most recent call last):
   File "<stdin>", line 1, in <module>
 pyo3_runtime.PanicException: called `Result::unwrap()` on an `Err` value: Error(Error { input: "", code: Many1 })
+
+```
+
+#### Сборка линуксов 
+```
+pyenv activate parser
+maturin build -r -m parser/Cargo.toml
 ```
 
 #### сборка windows 64

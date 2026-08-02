@@ -517,6 +517,7 @@ impl From<&str> for ProtocolType {
         Self::String(Str::new(value))
     }
 }
+
 impl Default for ProtocolType {
     fn default() -> Self {
         Self::String(Str::new_static("ip"))
