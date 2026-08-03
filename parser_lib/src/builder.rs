@@ -95,7 +95,7 @@ impl Builder<(d::ProtocolSetting, d::ProtocolSetting)> for ProtocolSettingBuilde
 
         let translated = d::ProtocolSetting::new(
             self.protocol.clone(),
-            self.operator.clone(),
+            self.operator,
             ip_4_options,
             self.translated_source.clone(),
             self.translated_destination.clone(),

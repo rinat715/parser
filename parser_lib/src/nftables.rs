@@ -978,7 +978,7 @@ fn to_port<'a>(input: &str) -> IResult<&str, d::PortOperator> {
 }
 // --to 100.100.100.0/24
 //
-fn network_mapped_translated_address<'a>(input: &'a str) -> IResult<&'a str, d::IPOperator> {
+fn network_mapped_translated_address(input: &str) -> IResult<&str, d::IPOperator> {
     let network = map(pair(terminated(p::ip4, tag("/")), u8), |v| {
         Address::Network(v)
     });

@@ -42,14 +42,14 @@ impl InterfaceBuilder {
         for value in values {
             match value {
                 Interface::Value(v) => {
-                    if operator == true {
+                    if operator {
                         self.normalized.push(d::Str::new(v));
                     };
                     self.value.push(d::StringOperator::single(operator, v));
                 }
-                Interface::Mask(v) => normalizator.normalize(&v).iter().for_each(|v| {
+                Interface::Mask(v) => normalizator.normalize(v).iter().for_each(|v| {
                     self.value.push(d::StringOperator::single(operator, v));
-                    if operator == true {
+                    if operator {
                         self.normalized.push(d::Str::new(v));
                     }
                 }),
@@ -206,15 +206,15 @@ impl<'a> NATBuilder<'a> {
 
     fn is_translated_to_destination(&self) -> bool {
         match self.type_ {
-            NATType::DNAT | NATType::REDIRECT => return true,
-            _ => return false,
+            NATType::DNAT | NATType::REDIRECT => true,
+            _ => false,
         }
     }
 
     fn is_translated_to_source(&self) -> bool {
         match self.type_ {
-            NATType::SNAT | NATType::MASQUERADE => return true,
-            _ => return false,
+            NATType::SNAT | NATType::MASQUERADE => true,
+            _ => false,
         }
     }
 }
@@ -387,18 +387,14 @@ impl<'a> Mapper<NATRule<'a>> for RawNATRule<'a> {
                 if let NAT::TranslatedSource((address, port)) = v {
                     self.extended.translated_source(address);
 
-                    port.map(|v| {
-                        self.protocol.set_translated_source(v);
-                    });
+                    if let Some(v) = port { self.protocol.set_translated_source(v); }
                     return;
                 };
 
                 if let NAT::TranslatedDestination((address, port)) = v {
                     self.extended.translated_destination(address);
 
-                    port.map(|v| {
-                        self.protocol.set_translated_destination(v);
-                    });
+                    if let Some(v) = port { self.protocol.set_translated_destination(v); }
                     return;
                 };
 

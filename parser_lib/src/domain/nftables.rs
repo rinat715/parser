@@ -86,6 +86,7 @@ impl TryInto<d::NormalizedAction> for ActionType {
 pub static EXCLAMATION: &str = "!";
 
 #[derive(Clone)]
+#[derive(Default)]
 pub struct OperatorType(Option<&'static str>);
 
 impl From<OperatorType> for bool {
@@ -112,11 +113,6 @@ impl From<OperatorType> for d::FragmentOperatorType {
     }
 }
 
-impl Default for OperatorType {
-    fn default() -> Self {
-        Self(None)
-    }
-}
 
 impl OperatorType {
     pub fn new(value: Option<&'static str>) -> Self {
