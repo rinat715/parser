@@ -974,6 +974,7 @@ fn address_port(
 
 fn to_port<'a>(input: &str) -> IResult<&str, d::PortOperator> {
     let port = map(SingleOrPairU16::sep_dash, |v| d::PortOperator::new(true, v));
+
     preceded_tag_space("--to-ports", port).parse(input)
 }
 // --to 100.100.100.0/24

@@ -98,8 +98,8 @@ impl From<OperatorType> for bool {
 impl From<OperatorType> for d::generic::Bool {
     fn from(val: OperatorType) -> Self {
         match val.0 {
-            Some(_) => d::generic::Bool(false),
-            None => d::generic::Bool(true),
+            Some(_) => false.into(),
+            None => true.into(),
         }
     }
 }

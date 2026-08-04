@@ -6,9 +6,6 @@ pub trait EnumToStr {
     fn to_str(&self) -> &str;
 }
 
-
-
-
 pub fn bool_operator<T>(operator: impl Into<bool>, value: Tuple<T>) -> Operator<Bool, T> {
     let operator = Bool(operator.into());
     Operator { operator, value }
