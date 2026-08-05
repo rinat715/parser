@@ -1,4 +1,10 @@
-use crate::domain::ProtocolType;
+use crate::domain::{ProtocolType, StringOperator};
+pub mod nftables;
+
+use crate::domain as d;
+use crate::domain::generic::Bool;
+
+use crate::part::{General, ProtocolPart};
 
 pub trait Builder<T> {
     fn build(self) -> T;
@@ -8,13 +14,25 @@ pub trait Mapper<T> {
     fn mapping(&mut self, item: T);
 }
 
-pub mod nftables;
+pub trait Normalizator<T, T1> {
+    fn normalize(&self, value: T) -> (T, T1);
+}
 
-use crate::domain as d;
+pub struct StringOperatorBuilder {
+    operator: Bool,
+}
 
-use crate::part::{General, ProtocolPart};
+impl StringOperatorBuilder {
+    pub fn new(operator: impl Into<Bool>) -> Self {
+        Self {
+            operator: operator.into(),
+        }
+    }
 
-
+    pub fn from_value(&self, value: &str) -> StringOperator {
+        StringOperator::single(self.operator.clone(), value)
+    }
+}
 
 #[derive(Default)]
 pub struct ProtocolSettingBuilder {
@@ -101,6 +119,7 @@ impl Builder<(d::ProtocolSetting, d::ProtocolSetting)> for ProtocolSettingBuilde
             self.translated_destination.clone(),
             self.tcp_flags.clone(),
         );
+
         (Builder::build(self), translated)
     }
 }
@@ -128,53 +147,84 @@ impl ProtocolSettingBuilder {
     }
 }
 
-#[derive(Default)]
-struct DirectionBuilder {
-    value: Vec<d::EndpointSetting>,
-    normalized: Vec<d::IPOperator>,
+struct ValuePair<T, T1> {
+    value: Vec<T>,
+    normalized: Vec<T1>,
 }
 
-impl DirectionBuilder {
-    fn push(&mut self, value: d::IPOperator) {
-        self.normalized.push(value.clone());
-        self.value.push(d::EndpointSetting::IPOperator(value))
+impl<T, T1> ValuePair<T, T1> {
+    fn push<U>(&mut self, value: T, normalizator: &U)
+    where
+        U: Normalizator<T, T1>,
+    {
+        let (value, normalized) = normalizator.normalize(value);
+        self.value.push(value);
+        self.normalized.push(normalized)
+    }
+
+    fn extend<U>(&mut self, value: T, normalizator: &U)
+    where
+        U: Normalizator<T, Vec<T1>>,
+    {
+        let (value, normalized) = normalizator.normalize(value);
+        self.value.push(value);
+        self.normalized.extend(normalized)
     }
 }
 
-#[derive(Default)]
-pub struct GeneralBuilder {
-    line_number: usize,
-    raw: d::Str,
-    status: bool,
-    protocol: Vec<d::ProtocolSetting>,
-    normalized_protocol: Vec<d::ProtocolSetting>,
-    source: DirectionBuilder,
-    destination: DirectionBuilder,
-}
-
-impl GeneralBuilder {
-    pub fn set_raw(&mut self, value: &str) {
-       self.raw = d::Str::new(value);
-    }
-}
-
-impl Mapper<General> for GeneralBuilder {
-    fn mapping(&mut self, item: General) {
-        match item {
-            General::Destination(v) => self.destination.push(v),
-            General::Source(v) => self.source.push(v),
+impl<T, T1> Default for ValuePair<T, T1> {
+    fn default() -> Self {
+        Self {
+            value: vec![],
+            normalized: vec![],
         }
     }
 }
 
-impl Builder<d::General> for GeneralBuilder {
+#[derive(Default)]
+pub struct GeneralBuilder<T, T1> {
+    line_number: usize,
+    raw: d::Str,
+    status: bool,
+    protocol_normalizator: T,
+    protocol: ValuePair<d::ProtocolSetting, d::ProtocolSetting>,
+    endpoint_normalizator: T1,
+    source: ValuePair<d::EndpointSetting, d::IPOperator>,
+    destination: ValuePair<d::EndpointSetting, d::IPOperator>,
+}
+
+impl<T, T1> GeneralBuilder<T, T1> {
+    pub fn set_raw(&mut self, value: &str) {
+        self.raw = d::Str::new(value);
+    }
+}
+
+impl<T, T1> Mapper<General> for GeneralBuilder<T, T1>
+where
+    T1: Normalizator<d::EndpointSetting, d::IPOperator>,
+{
+    fn mapping(&mut self, item: General) {
+        match item {
+            General::Destination(v) => self.destination.push(
+                d::EndpointSetting::IPOperator(v),
+                &self.endpoint_normalizator,
+            ),
+            General::Source(v) => self.source.push(
+                d::EndpointSetting::IPOperator(v),
+                &self.endpoint_normalizator,
+            ),
+        }
+    }
+}
+
+impl<T, T1> Builder<d::General> for GeneralBuilder<T, T1> {
     fn build(self) -> d::General {
         d::General::new(
             self.line_number,
             self.raw,
             self.status,
-            self.protocol,
-            self.normalized_protocol,
+            self.protocol.value,
+            self.protocol.normalized,
             self.source.value,
             self.source.normalized,
             self.destination.value,
@@ -183,10 +233,12 @@ impl Builder<d::General> for GeneralBuilder {
     }
 }
 
-impl GeneralBuilder {
+impl<T, T1> GeneralBuilder<T, T1>
+where
+    T: Normalizator<d::ProtocolSetting, d::ProtocolSetting>,
+{
     fn protocol_setting(&mut self, value: d::ProtocolSetting) {
-        self.protocol.push(value.clone());
-        self.normalized_protocol.push(value);
+        self.protocol.push(value, &self.protocol_normalizator);
     }
     pub fn set_number(&mut self, number: usize) {
         self.line_number = number;
@@ -266,5 +318,4 @@ TCPUDPOptions:
             )
         )
     }
-
-    }
+}

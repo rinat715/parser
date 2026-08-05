@@ -11,7 +11,7 @@ use nom::{
 
 use nom::bytes::complete::take_until1;
 
-use crate::domain::{self as d, Str, StringOperatorBuilder};
+use crate::{builder::StringOperatorBuilder, domain::{self as d, Str, }};
 
 fn single_or_pair<'a, T, E: ParseError<&'a str>, F>(
     sep: &'static str,

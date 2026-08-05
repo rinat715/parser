@@ -9,8 +9,11 @@ use proc_macro2::Span;
 use quote::quote;
 use quote::ToTokens;
 use syn::Ident;
+use syn::ItemFn;
 use syn::Lit;
+use syn::ReturnType;
 use syn::Token;
+use syn::parse_quote;
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input, Data, DeriveInput, FnArg, LitStr, Pat, Type,
@@ -215,4 +218,64 @@ pub fn to_to_serialize_map(input: TokenStream) -> TokenStream {
     let original_struct = parse_macro_input!(input as DeriveInput);
 
     code_struct::parse_for_serialize_dict_entries(&original_struct)
+}
+
+// иишница 
+#[proc_macro_attribute]
+pub fn macro_move(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // 1. Аргументы атрибута: `ctx: &'a Rc<RefCell<Context>>` (через запятую, если их несколько)
+    let ctx_args = parse_macro_input!(
+        attr with syn::punctuated::Punctuated::<FnArg, Token![,]>::parse_terminated
+    );
+
+    // 2. Парсим саму функцию
+    let mut item_fn = parse_macro_input!(item as ItemFn);
+
+    // 3. Достаём исходный входной параметр (например, `s: &str`) — он пойдёт внутрь замыкания
+    let (closure_pat, closure_ty) = item_fn
+        .sig
+        .inputs
+        .iter()
+        .find_map(|arg| match arg {
+            FnArg::Typed(pat_type) => {
+                Some(((*pat_type.pat).clone(), (*pat_type.ty).clone()))
+            }
+            _ => None,
+        })
+        .expect("macro_move: функция должна иметь хотя бы один типизированный параметр");
+
+    // 4. Достаём исходный возвращаемый тип (он станет «внутренним» возвращаемым типом impl Fn)
+    let return_type = match &item_fn.sig.output {
+        ReturnType::Type(_, ty) => ty.clone(),
+        _ => panic!("macro_move: функция должна иметь явный возвращаемый тип"),
+    };
+
+   // 5. ПЫТАЕМСЯ достать лайфтайм. Если его нет — будет None.
+    let lifetime_opt = item_fn
+        .sig
+        .generics
+        .lifetimes()
+        .next()
+        .map(|l| l.lifetime.clone());
+
+    // 6. Заменяем входные параметры функции на ctx-параметры из атрибута
+    item_fn.sig.inputs = ctx_args;
+
+    // 7. Меняем возвращаемый тип в зависимости от наличия лайфтайма
+    let new_return: Type = match lifetime_opt {
+        Some(lifetime) => parse_quote!(impl Fn(&#lifetime str) -> #return_type),
+        None => parse_quote!(impl Fn(&str) -> #return_type),
+    };    
+    item_fn.sig.output = ReturnType::Type(Default::default(), Box::new(new_return));
+
+    // 8. Делаем функцию публичной
+    item_fn.vis = parse_quote!(pub);
+
+    // 9. Оборачиваем тело в `move |s: &str| { ... }`
+    let body = &item_fn.block;
+    item_fn.block = Box::new(parse_quote!({
+        move |#closure_pat: #closure_ty| #body
+    }));
+
+    quote! { #item_fn }.into()
 }

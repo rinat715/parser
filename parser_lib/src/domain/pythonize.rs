@@ -14,8 +14,7 @@ pub fn insert<T: IntoPy<PyObject>>(py: Python, dict: &PyDict, key: &str, value: 
 
 pub fn try_insert<T: IntoPy<PyObject>>(py: Python, dict: &PyDict, key: &str, value: Option<T>) {
     if let Some(v) = value {
-        let _ = dict.set_item(key, v.into_py(py)); // TODO залогировать ошибку 
-        // откуда возьмется TypeError
+        let _ = dict.set_item(key, v.into_py(py));
     }
 }
 

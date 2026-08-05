@@ -20,9 +20,9 @@ pub enum General {
     Destination(d::IPOperator),
 }
 
-pub enum Interface<'a> {
-    Value(&'a str),
-    Mask(&'a str),
+pub enum InterfaceType {
+    Value,
+    Mask,
 }
 
 #[derive(Serialize)]
@@ -57,16 +57,16 @@ pub mod nftables {
         RejectWith(&'a str),
         LogLevel(d::ActionSetting<ActionType>),
         ActionModifier(d::ActionSetting<ActionType>),
-        InterfaceIn((bool, Vec<Interface<'a>>)),
-        InterfaceOut((bool, Vec<Interface<'a>>)),
+        InterfaceIn((bool, Vec<(InterfaceType, &'a str)>)),
+        InterfaceOut((bool, Vec<(InterfaceType, &'a str)>)),
     }
 
     pub enum NAT<'a> {
         Type(d::nftables::NATType),
         Jump(&'a str),
         Goto(&'a str),
-        InterfaceIn((bool, Vec<Interface<'a>>)),
-        InterfaceOut((bool, Vec<Interface<'a>>)),
+        InterfaceIn((bool, Vec<(InterfaceType, &'a str)>)),
+        InterfaceOut((bool, Vec<(InterfaceType, &'a str)>)),
         TranslatedSource((d::IPOperator, Option<d::PortOperator>)),
         TranslatedDestination((d::IPOperator, Option<d::PortOperator>)),
         TranslatedPort(d::PortOperator),

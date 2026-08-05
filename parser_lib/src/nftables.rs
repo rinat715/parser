@@ -22,7 +22,7 @@ use crate::{
         self as d,
         nftables::{Chain, ChainName, DefaultAction, Table, UserChain},
     },
-    part::{Address, General, Interface, ProtocolPart},
+    part::{Address, General, InterfaceType, ProtocolPart},
 };
 
 use crate::{
@@ -33,7 +33,7 @@ use crate::{
     domain::Str,
     parser::{SingleOrPairU16, preceded_tag_space, separated_by_comma},
 };
-use macros::alt_impl;
+use macros::{alt_impl, macro_move};
 
 pub type Operator = d::nftables::OperatorType;
 pub type ActionType = d::nftables::ActionType;
@@ -330,12 +330,12 @@ mod tests {
         let (rem, res) = interface("-i")("-i eth1,mgmt").unwrap();
         assert_eq!("", rem);
 
-        if let Interface::Value(v) = res.1[0] {
-            assert_eq!(v, "eth1")
+        if let InterfaceType::Value = res.1[0].0 {
+            assert_eq!(res.1[0].1, "eth1")
         }
 
-        if let Interface::Value(v) = res.1[1] {
-            assert_eq!(v, "mgmt")
+        if let InterfaceType::Value = res.1[1].0 {
+            assert_eq!(res.1[1].1, "mgmt")
         }
     }
 
@@ -765,39 +765,37 @@ fn ip_protocol_options(s: &str) -> IResult<&str, d::IPProtocolOptions> {
 //  --sport 500:600 --dport 45
 // ! --ports 50,300:400
 // --ports 50
-fn port(arg: &'static str) -> impl Fn(&str) -> IResult<&str, Vec<d::PortOperator>> {
-    move |input: &str| {
-        let port = map(SingleOrPairU16::sep_colon, |v| vec![v]);
-        let ports = separated_by_comma(SingleOrPairU16::sep_colon);
+#[macro_move(arg: &'static str)]
+fn port(input: &str) -> IResult<&str, Vec<d::PortOperator>> {
+    let port = map(SingleOrPairU16::sep_colon, |v| vec![v]);
+    let ports = separated_by_comma(SingleOrPairU16::sep_colon);
 
-        p::port_many(pair(operator, preceded_tag_space(arg, alt((ports, port))))).parse(input)
-    }
+    p::port_many(pair(operator, preceded_tag_space(arg, alt((ports, port))))).parse(input)
 }
 
 //  ! -s 192.168.0.1/32
 //  -A OUTPUT -s 192.168.0.1/32 -d 100.100.100.0/24 p icmp -m iprange --srcrange 192.168.0.2-192.168.0.100 ! --dstrange 100.100.100.10-100.100.100.200
 // -m conntrack --ctorigsrc 10.10.140.3 --ctorigdst 10.0.0.0/8 ! --ctorigdstport 443
-fn ip4_address(arg: &'static str) -> impl Fn(&str) -> IResult<&str, d::IPOperator> {
-    move |input: &str| {
-        let network = map(pair(terminated(p::ip4, tag("/")), u8), |v| {
-            Address::Network(v)
-        });
-        // --ctorigsrc 10.10.140.3 prefix равен 32
-        let ip = map(p::ip4, Address::IP);
-        // 192.168.0.2-192.168.0.100
-        let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
-            Address::Range(v)
-        });
+#[macro_move(arg: &'static str)]
+fn ip4_address(input: &str) -> IResult<&str, d::IPOperator> {
+    let network = map(pair(terminated(p::ip4, tag("/")), u8), |v| {
+        Address::Network(v)
+    });
+    // --ctorigsrc 10.10.140.3 prefix равен 32
+    let ip = map(p::ip4, Address::IP);
+    // 192.168.0.2-192.168.0.100
+    let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
+        Address::Range(v)
+    });
 
-        map(
-            pair(
-                operator,
-                preceded_tag_space(arg, alt((range_ip, network, ip))),
-            ),
-            |(operator, address)| address.ip_operator(operator),
-        )
-        .parse(input)
-    }
+    map(
+        pair(
+            operator,
+            preceded_tag_space(arg, alt((range_ip, network, ip))),
+        ),
+        |(operator, address)| address.ip_operator(operator),
+    )
+    .parse(input)
 }
 
 fn tcp_flag_item(s: &str) -> IResult<&str, Vec<d::Flag>> {
@@ -898,6 +896,7 @@ fn ctstate(s: &str) -> IResult<&str, Vec<d::StringOperator>> {
             ))),
         ),
     );
+
     p::ctstate(parser).parse(s)
 }
 
@@ -933,20 +932,20 @@ fn set(s: &str) -> IResult<&str, d::SetOperator> {
 // -o swp1
 // ! -i swp3,swp4
 // eth0,mgmt
+#[macro_move(arg: &'static str)]
+fn interface(input: &str) -> IResult<&str, (bool, Vec<(InterfaceType, &str)>)> {
+    let mask_parser = map(terminated(alphanumeric1, tag("+")), |v| {
+        (InterfaceType::Mask, v)
+    });
+    let value_parser = map(alphanumeric1, |v| (InterfaceType::Value, v));
 
-fn interface(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (bool, Vec<Interface>)> {
-    move |input: &str| {
-        let mask_parser = map(terminated(alphanumeric1, tag("+")), Interface::Mask);
-        let value_parser = map(alphanumeric1, Interface::Value);
+    let parser = alt((mask_parser, value_parser));
 
-        let parser = alt((mask_parser, value_parser));
-
-        pair(
-            map(operator, |v| v.into()),
-            preceded_tag_space(arg, separated_by_comma(parser)),
-        )
-        .parse(input)
-    }
+    pair(
+        map(operator, |v| v.into()),
+        preceded_tag_space(arg, separated_by_comma(parser)),
+    )
+    .parse(input)
 }
 
 //
@@ -954,22 +953,19 @@ fn interface(arg: &'static str) -> impl Fn(&str) -> IResult<&str, (bool, Vec<Int
 // --to-destination 10.0.0.0-10.0.0.10:600-70
 // --to-source 4.4.4.4:400
 // 10.0.0.0-10.0.0.10:600-700
-fn address_port(
-    arg: &'static str,
-) -> impl Fn(&str) -> IResult<&str, (d::IPOperator, Option<d::PortOperator>)> {
-    move |input: &str| {
-        let port = map(SingleOrPairU16::sep_dash, |v| d::PortOperator::new(true, v));
+#[macro_move(arg: &'static str)]
+fn address_port(input: &str) -> IResult<&str, (d::IPOperator, Option<d::PortOperator>)> {
+    let port = map(SingleOrPairU16::sep_dash, |v| d::PortOperator::new(true, v));
 
-        let ip = map(p::ip4, Address::IP);
-        // 192.168.0.2-192.168.0.100
-        let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
-            Address::Range(v)
-        });
+    let ip = map(p::ip4, Address::IP);
+    // 192.168.0.2-192.168.0.100
+    let range_ip = map(separated_pair(p::ip4, tag("-"), p::ip4), |v| {
+        Address::Range(v)
+    });
 
-        let ip_address = map(alt((range_ip, ip)), |v| v.ip_operator(true));
+    let ip_address = map(alt((range_ip, ip)), |v| v.ip_operator(true));
 
-        preceded_tag_space(arg, (ip_address, opt(preceded(tag(":"), port)))).parse(input)
-    }
+    preceded_tag_space(arg, (ip_address, opt(preceded(tag(":"), port)))).parse(input)
 }
 
 fn to_port<'a>(input: &str) -> IResult<&str, d::PortOperator> {
@@ -1063,32 +1059,32 @@ mod acl {
         .parse(input)
     }
 
-    pub fn parser<'a>(
-        ctx: &'a Rc<RefCell<Context>>,
-    ) -> impl Fn(&'a str) -> IResult<&'a str, RawACLRule<'a>> {
-        move |s: &str| {
-            let (remain, row) = p::terminated_by_newline(take_until1("\n")).parse(s)?;
+    #[macro_move(ctx: &'a Rc<RefCell<Context>>)]
+    pub fn parser<'a>(input: &str) -> IResult<&'a str, RawACLRule<'a>> {
+        let (remain, row) = p::terminated_by_newline(take_until1("\n")).parse(input)?;
 
-            let (options, chain) = tag_value("-A").parse(row)?;
+        let (options, chain) = tag_value("-A").parse(row)?;
 
-            let mut rule_parser = fold_many1(
-                option,
-                || RawACLRule::new(ctx, row, chain),
-                |mut acc, item| {
-                    acc.mapping(item);
-                    acc
-                },
-            );
+        let mut rule_parser = fold_many1(
+            option,
+            || RawACLRule::new(ctx, row, chain),
+            |mut acc, item| {
+                acc.mapping(item);
+                acc
+            },
+        );
 
-            let (_, rule) = rule_parser.parse(options)?;
-            Ok((remain, rule))
-        }
+        let (_, rule) = rule_parser.parse(options)?;
+        Ok((remain, rule))
     }
 }
 
 mod nat {
     use super::*;
-    use crate::{builder::{Mapper, nftables::RawNATRule}, part::nftables::{NAT, NATRule, Vendor}};
+    use crate::{
+        builder::{Mapper, nftables::RawNATRule},
+        part::nftables::{NAT, NATRule, Vendor},
+    };
 
     fn type_(input: &str) -> IResult<&str, d::nftables::NATType> {
         alt((
@@ -1140,26 +1136,23 @@ mod nat {
         .parse(input)
     }
 
-    pub fn parser<'a>(
-        ctx: &'a Rc<RefCell<Context>>,
-    ) -> impl Fn(&'a str) -> IResult<&'a str, RawNATRule<'a>> {
-        move |s: &str| {
-            let (remain, row) = p::terminated_by_newline(take_until1("\n")).parse(s)?;
+    #[macro_move(ctx: &'a Rc<RefCell<Context>>)]
+    pub fn parser<'a>(input: &str) -> IResult<&'a str, RawNATRule<'a>> {
+        let (remain, row) = p::terminated_by_newline(take_until1("\n")).parse(input)?;
 
-            let (options, chain) = tag_value("-A").parse(row)?;
+        let (options, chain) = tag_value("-A").parse(row)?;
 
-            let mut rule_parser = fold_many1(
-                option,
-                || RawNATRule::new(ctx, row, chain),
-                |mut acc, item| {
-                    acc.mapping(item);
-                    acc
-                },
-            );
+        let mut rule_parser = fold_many1(
+            option,
+            || RawNATRule::new(ctx, row, chain),
+            |mut acc, item| {
+                acc.mapping(item);
+                acc
+            },
+        );
 
-            let (_, rule) = rule_parser.parse(options)?;
-            Ok((remain, rule))
-        }
+        let (_, rule) = rule_parser.parse(options)?;
+        Ok((remain, rule))
     }
 }
 
@@ -1296,27 +1289,24 @@ macro_rules! impl_table_parser {
         rules = $rule_parser:expr,
         process = $process_method:ident $(,)?
     ) => {
-        fn $name<'a>(
-            ctx: &'a Rc<RefCell<Context>>,
-        ) -> impl FnMut(&'a str) -> IResult<&'a str, Table> {
-            move |input: &str| {
-                let (remain, (mut table, body)) = $header_parser.parse(input)?;
+        #[macro_move(ctx: &'a Rc<RefCell<Context>>)]
+        fn $name<'a>(input: &str) -> IResult<&'a str, Table> {
+            let (remain, (mut table, body)) = $header_parser.parse(input)?;
 
-                let (body, user_chains) = fold_user_chain(body)?;
+            let (body, user_chains) = fold_user_chain(body)?;
 
-                let user_chain_names = table.process_user_chain(user_chains);
+            let user_chain_names = table.process_user_chain(user_chains);
 
-                let mut mut_ctx: RefMut<'_, _> = ctx.borrow_mut();
-                mut_ctx.set_user_chain_names(user_chain_names);
-                drop(mut_ctx);
+            let mut mut_ctx: RefMut<'_, _> = ctx.borrow_mut();
+            mut_ctx.set_user_chain_names(user_chain_names);
+            drop(mut_ctx);
 
-                let parser = p::wrap_error_line($rule_parser(ctx));
-                let (_, rules) = many1(parser).parse(body)?;
+            let parser = p::wrap_error_line($rule_parser(ctx));
+            let (_, rules) = many1(parser).parse(body)?;
 
-                table.$process_method(rules);
+            table.$process_method(rules);
 
-                Ok((remain, table))
-            }
+            Ok((remain, table))
         }
     };
 }
@@ -1335,20 +1325,17 @@ impl_table_parser!(
     process = process_nat_rules,
 );
 
-pub fn tables<'a>(
-    ctx: &'a Rc<RefCell<Context>>,
-) -> impl Fn(&'a str) -> IResult<&'a str, Vec<Table>> {
-    move |input: &str| {
-        let parser = p::wrap_error_line(alt((table(ctx), nat_table(ctx))));
+#[macro_move(ctx: &'a Rc<RefCell<Context>>)]
+pub fn tables<'a>(input: &str) -> IResult<&'a str, Vec<Table>> {
+    let parser = p::wrap_error_line(alt((table(ctx), nat_table(ctx))));
 
-        let (remain, result) = many1(parser).parse(input)?;
-        let mut tables = Vec::new();
-        for item in result {
-            match item {
-                d::Value::Value(v) => tables.push(v),
-                d::Value::Error(v) => println!("Error table part {}", v.as_str()),
-            }
+    let (remain, result) = many1(parser).parse(input)?;
+    let mut tables = Vec::new();
+    for item in result {
+        match item {
+            d::Value::Value(v) => tables.push(v),
+            d::Value::Error(v) => println!("Error table part {}", v.as_str()),
         }
-        Ok((remain, tables))
     }
+    Ok((remain, tables))
 }

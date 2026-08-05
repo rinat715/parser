@@ -1,11 +1,13 @@
-use crate::builder::{Builder, DirectionBuilder, GeneralBuilder, Mapper, ProtocolSettingBuilder};
+use crate::builder::{
+    Builder, GeneralBuilder, Mapper, Normalizator, ProtocolSettingBuilder, ValuePair,
+};
 use crate::domain as d;
+use crate::part::InterfaceType;
 use crate::part::nftables::{ACL, ACLRule, NAT, NATRule, Vendor};
 use std::{cell::RefCell, rc::Rc};
 
 use crate::domain::nftables::{Context, NATType};
 use crate::nftables::{ActionSetting, ActionType};
-use crate::part::Interface;
 
 pub struct InterfaceNormalizator<'a> {
     ctx: &'a Rc<RefCell<Context>>,
@@ -16,45 +18,50 @@ impl<'a> InterfaceNormalizator<'a> {
         Self { ctx }
     }
 
-    fn normalize(&self, value: &'a str) -> Vec<String> {
+    fn find_by_mask(&self, value: &'a str) -> Vec<d::Str> {
         let ctx = self.ctx.borrow();
         ctx.interfaces
             .iter()
             .filter(|v| v.starts_with(value))
-            .cloned()
+            .map(|v| d::Str::new(v))
             .collect()
     }
 }
 
-#[derive(Default)]
-pub struct InterfaceBuilder {
-    value: Vec<d::StringOperator>,
-    normalized: Vec<d::Str>,
+impl<'a> Normalizator<d::StringOperator, Vec<d::Str>> for InterfaceNormalizator<'a> {
+    fn normalize(&self, value: d::StringOperator) -> (d::StringOperator, Vec<d::Str>) {
+        let normalized = self.find_by_mask(value.first().as_str());
+
+        (value, normalized)
+    }
 }
 
-impl InterfaceBuilder {
-    fn push<'a>(
-        &mut self,
-        operator: bool,
-        values: Vec<Interface<'a>>,
-        normalizator: &InterfaceNormalizator<'a>,
-    ) {
-        for value in values {
-            match value {
-                Interface::Value(v) => {
-                    if operator {
-                        self.normalized.push(d::Str::new(v));
-                    };
-                    self.value.push(d::StringOperator::single(operator, v));
-                }
-                Interface::Mask(v) => normalizator.normalize(v).iter().for_each(|v| {
-                    self.value.push(d::StringOperator::single(operator, v));
-                    if operator {
-                        self.normalized.push(d::Str::new(v));
-                    }
-                }),
-            }
-        }
+impl<'a> Normalizator<d::StringOperator, d::Str> for InterfaceNormalizator<'a> {
+    fn normalize(&self, value: d::StringOperator) -> (d::StringOperator, d::Str) {
+        let normalized = Clone::clone(value.first());
+
+        (value, normalized)
+    }
+}
+
+#[derive(Default)]
+pub struct ProtocolNormalizator;
+
+impl Normalizator<d::ProtocolSetting, d::ProtocolSetting> for ProtocolNormalizator {
+    fn normalize(&self, value: d::ProtocolSetting) -> (d::ProtocolSetting, d::ProtocolSetting) {
+        (value.clone(), value)
+    }
+}
+
+#[derive(Default)]
+pub struct EndpointNormalizator;
+
+impl Normalizator<d::EndpointSetting, d::IPOperator> for EndpointNormalizator {
+    fn normalize(&self, value: d::EndpointSetting) -> (d::EndpointSetting, d::IPOperator) {
+        let normalized = match value.clone() {
+            d::EndpointSetting::IPOperator(ip_operator) => ip_operator,
+        };
+        (value, normalized)
     }
 }
 
@@ -167,12 +174,13 @@ pub struct NATBuilder<'a> {
     type_: NATType,
     target: d::Str,
     interface: InterfaceNormalizator<'a>,
-    interface_in: InterfaceBuilder,
-    interface_out: InterfaceBuilder,
-    translated_protocol: Vec<d::ProtocolSetting>,
-    normalized_translated_protocol: Vec<d::ProtocolSetting>,
-    translated_source: DirectionBuilder,
-    translated_destination: DirectionBuilder,
+    interface_in: ValuePair<d::StringOperator, d::Str>,
+    interface_out: ValuePair<d::StringOperator, d::Str>,
+    protocol_normalizator: ProtocolNormalizator,
+    translated_protocol: ValuePair<d::ProtocolSetting, d::ProtocolSetting>,
+    endpoint_normalizator: EndpointNormalizator,
+    translated_source: ValuePair<d::EndpointSetting, d::IPOperator>,
+    translated_destination: ValuePair<d::EndpointSetting, d::IPOperator>,
 }
 
 impl<'a> NATBuilder<'a> {
@@ -182,26 +190,33 @@ impl<'a> NATBuilder<'a> {
             type_: NATType::default(),
             target: d::Str::new_static(""),
             interface: InterfaceNormalizator::new(ctx),
-            interface_in: InterfaceBuilder::default(),
-            interface_out: InterfaceBuilder::default(),
-            translated_protocol: vec![],
-            normalized_translated_protocol: vec![],
-            translated_source: DirectionBuilder::default(),
-            translated_destination: DirectionBuilder::default(),
+            interface_in: ValuePair::default(),
+            interface_out: ValuePair::default(),
+            protocol_normalizator: ProtocolNormalizator::default(),
+            translated_protocol: Default::default(),
+            translated_source: ValuePair::default(),
+            translated_destination: ValuePair::default(),
+            endpoint_normalizator: EndpointNormalizator::default(),
         }
     }
 
     fn translated_protocol_setting(&mut self, value: d::ProtocolSetting) {
-        self.translated_protocol.push(value.clone());
-        self.normalized_translated_protocol.push(value);
+        self.translated_protocol
+            .push(value, &self.protocol_normalizator);
     }
 
     fn translated_source(&mut self, value: d::IPOperator) {
-        self.translated_source.push(value);
+        self.translated_source.push(
+            d::EndpointSetting::IPOperator(value),
+            &self.endpoint_normalizator,
+        );
     }
 
     fn translated_destination(&mut self, value: d::IPOperator) {
-        self.translated_destination.push(value);
+        self.translated_destination.push(
+            d::EndpointSetting::IPOperator(value),
+            &self.endpoint_normalizator,
+        );
     }
 
     fn is_translated_to_destination(&self) -> bool {
@@ -234,8 +249,44 @@ impl<'a> Mapper<NAT<'a>> for NATBuilder<'a> {
                 self.type_ = NATType::GOTO;
                 self.target = d::Str::new(v);
             }
-            NAT::InterfaceIn(v) => self.interface_in.push(v.0, v.1, &self.interface),
-            NAT::InterfaceOut(v) => self.interface_out.push(v.0, v.1, &self.interface),
+            NAT::InterfaceIn((operator, values)) => {
+                for item in values {
+                    let (type_, value) = item;
+                    let str_operator = d::StringOperator::single(operator, value);
+
+                    if operator {
+                        match type_ {
+                            InterfaceType::Value => {
+                                self.interface_in.push(str_operator, &self.interface)
+                            }
+                            InterfaceType::Mask => {
+                                self.interface_in.extend(str_operator, &self.interface)
+                            }
+                        }
+                    } else {
+                        self.interface_in.value.push(str_operator);
+                    }
+                }
+            }
+            NAT::InterfaceOut((operator, values)) => {
+                for item in values {
+                    let (type_, value) = item;
+                    let str_operator = d::StringOperator::single(operator, value);
+
+                    if operator {
+                        match type_ {
+                            InterfaceType::Value => {
+                                self.interface_out.push(str_operator, &self.interface)
+                            }
+                            InterfaceType::Mask => {
+                                self.interface_out.extend(str_operator, &self.interface)
+                            }
+                        }
+                    } else {
+                        self.interface_in.value.push(str_operator);
+                    }
+                }
+            }
 
             _ => panic!("unreachable!"),
         }
@@ -246,8 +297,8 @@ impl<'a> Builder<d::NAT<d::nftables::NATType>> for NATBuilder<'a> {
     fn build(self) -> d::NAT<d::nftables::NATType> {
         d::NAT::new(
             self.type_,
-            self.translated_protocol,
-            self.normalized_translated_protocol,
+            self.translated_protocol.value,
+            self.translated_protocol.normalized,
             self.translated_source.value,
             self.translated_source.normalized,
             self.translated_destination.value,
@@ -262,8 +313,8 @@ pub struct ACLBuilder<'a> {
     action: ActionBuilder<'a>,
     // interface_
     interface: InterfaceNormalizator<'a>,
-    interface_in: InterfaceBuilder,
-    interface_out: InterfaceBuilder,
+    interface_in: ValuePair<d::StringOperator, d::Str>,
+    interface_out: ValuePair<d::StringOperator, d::Str>,
 }
 
 impl<'a> Mapper<ACL<'a>> for ACLBuilder<'a> {
@@ -276,8 +327,45 @@ impl<'a> Mapper<ACL<'a>> for ACLBuilder<'a> {
             ACL::RejectWith(v) => self.action.reject_with = d::Str::some(v),
             ACL::LogLevel(v) => self.action.log_level = v,
             ACL::ActionModifier(v) => self.action.action_modifiers.push(v),
-            ACL::InterfaceIn(v) => self.interface_in.push(v.0, v.1, &self.interface),
-            ACL::InterfaceOut(v) => self.interface_out.push(v.0, v.1, &self.interface),
+            ACL::InterfaceIn((operator, values)) => {
+                for item in values {
+                    let (type_, value) = item;
+                    let str_operator = d::StringOperator::single(operator, value);
+
+                    if operator {
+                        match type_ {
+                            InterfaceType::Value => {
+                                self.interface_in.push(str_operator, &self.interface)
+                            }
+                            InterfaceType::Mask => {
+                                self.interface_in.extend(str_operator, &self.interface)
+                            }
+                        }
+                    } else {
+                        self.interface_in.value.push(str_operator);
+                    }
+                }
+            }
+
+            ACL::InterfaceOut((operator, values)) => {
+                for item in values {
+                    let (type_, value) = item;
+                    let str_operator = d::StringOperator::single(operator, value);
+
+                    if operator {
+                        match type_ {
+                            InterfaceType::Value => {
+                                self.interface_out.push(str_operator, &self.interface)
+                            }
+                            InterfaceType::Mask => {
+                                self.interface_out.extend(str_operator, &self.interface)
+                            }
+                        }
+                    } else {
+                        self.interface_in.value.push(str_operator);
+                    }
+                }
+            }
         }
     }
 }
@@ -303,8 +391,8 @@ impl<'a> ACLBuilder<'a> {
         Self {
             action: ActionBuilder::new(ctx),
             interface: InterfaceNormalizator::new(ctx),
-            interface_in: InterfaceBuilder::default(),
-            interface_out: InterfaceBuilder::default(),
+            interface_in: ValuePair::default(),
+            interface_out: ValuePair::default(),
         }
     }
 }
@@ -356,7 +444,7 @@ impl Builder<d::nftables::NATExtended> for VendorBuilder {
 pub struct RawRule<T> {
     // билдеры
     protocol: ProtocolSettingBuilder,
-    general: GeneralBuilder,
+    general: GeneralBuilder<ProtocolNormalizator, EndpointNormalizator>,
     extended: T,
     vendor: VendorBuilder,
     // шаред поля
@@ -387,14 +475,18 @@ impl<'a> Mapper<NATRule<'a>> for RawNATRule<'a> {
                 if let NAT::TranslatedSource((address, port)) = v {
                     self.extended.translated_source(address);
 
-                    if let Some(v) = port { self.protocol.set_translated_source(v); }
+                    if let Some(v) = port {
+                        self.protocol.set_translated_source(v);
+                    }
                     return;
                 };
 
                 if let NAT::TranslatedDestination((address, port)) = v {
                     self.extended.translated_destination(address);
 
-                    if let Some(v) = port { self.protocol.set_translated_destination(v); }
+                    if let Some(v) = port {
+                        self.protocol.set_translated_destination(v);
+                    }
                     return;
                 };
 

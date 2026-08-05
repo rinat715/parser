@@ -3,7 +3,7 @@ use macros::ToDict;
 use serde_derive::Serialize;
 
 use crate::domain::generic::{Bool, Operator};
-use crate::domain::{IPAddress, Range, Str, Tuple, generic, single_operator};
+use crate::domain::{IPAddress, NonEmptyVec, OperatorVec, Range, Str, Tuple, single_operator};
 
 // // https://docs.rs/pyo3/0.15.2/pyo3/prelude/struct.Py.html#method.from_borrowed_ptr
 // в чем разница между into_py и into как будто оба
@@ -13,33 +13,31 @@ use crate::domain::{IPAddress, Range, Str, Tuple, generic, single_operator};
 // unsafe { Py::from_borrowed_ptr(obj.py(), obj.as_ptr()) }
 //
 
-pub type StringOperator = generic::OperatorVec<Bool, Str>;
+#[derive(ToDict, Clone)]
+#[serialize(transparent)]
+pub struct StringOperator(OperatorVec<Bool, Str>);
 
 impl StringOperator {
-    pub fn new(operator_type: impl Into<Bool>, values: Vec<Str>) -> Self {
-        Self {
+    pub fn new(operator_type: impl Into<Bool>, head: Str, tail: Vec<Str>) -> Self {
+        let values = NonEmptyVec::new(head, tail);
+        Self(OperatorVec {
             operator: operator_type.into(),
             values,
-        }
+        })
     }
 
     pub fn single(operator_type: impl Into<Bool>, value: &str) -> Self {
-        Self::new(operator_type, vec![Str::new(value)])
+        Self::new(operator_type, Str::new(value), vec![])
+    }
+
+    pub fn first(&self) -> &Str {
+        self.0.values.first()
     }
 }
 
-pub struct StringOperatorBuilder {
-    operator: Bool,
-}
-impl StringOperatorBuilder {
-    pub fn new(operator: impl Into<Bool>) -> Self {
-        Self {
-            operator: operator.into(),
-        }
-    }
-
-    pub fn from_value(&self, value: &str) -> StringOperator {
-        StringOperator::new(self.operator.clone(), vec![Str::new(value)])
+impl PartialEq<bool> for StringOperator {
+    fn eq(&self, other: &bool) -> bool {
+        self.0.operator == *other
     }
 }
 

@@ -6,9 +6,6 @@ extern crate log;
 use std::cell::RefCell;
 use std::rc::Rc;
 
- 
-
-
 #[pyfunction]
 fn get<'a>(input: &'a str, context: &'a parser_lib::Context) -> PyResult<Vec<parser_lib::Table>> {
     let ctx: Rc<RefCell<_>> = Rc::new(RefCell::new(context.clone()));

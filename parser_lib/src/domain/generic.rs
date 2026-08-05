@@ -1,4 +1,10 @@
+use std::iter::once;
+
 use macros::{ToDict, ToStr};
+use serde::{
+    Serialize as SerializeTrait,
+    ser::{SerializeSeq, Serializer},
+};
 use serde_derive::Serialize;
 use smol_str::SmolStr;
 
@@ -108,12 +114,71 @@ impl EnumToStr for Range {
     }
 }
 
+#[derive(Clone)]
+pub struct NonEmptyVec<T> {
+    head: T,
+    tail: Vec<T>,
+}
+
+impl<T> NonEmptyVec<T> {
+    pub fn new(head: T, tail: Vec<T>) -> Self {
+        Self { head, tail }
+    }
+
+    pub fn first(&self) -> &T {
+        &self.head
+    }
+
+    pub fn len(&self) -> usize {
+        self.tail.len() + 1
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item = T> {
+        once(self.head).chain(self.tail.into_iter())
+    }
+}
+
+impl<T> SerializeTrait for NonEmptyVec<T>
+where
+    T: serde::Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+        seq.serialize_element(&self.head)?;
+
+        for element in &self.tail {
+            seq.serialize_element(element)?;
+        }
+        seq.end()
+    }
+}
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+#[cfg(feature = "python")]
+use pyo3::types::PyList;
+
+#[cfg(feature = "python")]
+impl<'a, T> IntoPy<PyObject> for NonEmptyVec<T>
+where
+    T: IntoPy<PyObject>,
+{
+    fn into_py(self, py: Python) -> PyObject {
+        let v: Vec<PyObject> = self.into_iter().map(|v| v.into_py(py)).collect();
+        let l = PyList::new(py, &v);
+        l.into_py(py)
+    }
+}
+
 #[derive(Clone, ToDict)]
 pub struct OperatorVec<T, T1> {
-    #[serialize(rename = "Operator")]
+    #[serialize(rename = "Operator")] 
     pub operator: T,
     #[serialize(rename = "Values")]
-    pub values: Vec<T1>,
+    pub values: NonEmptyVec<T1>,
 }
 
 #[derive(Serialize)]
