@@ -836,10 +836,7 @@ test_17:
     InterfaceIn:
     - Operator: eq
       Values:
-      - swp1
-    - Operator: eq
-      Values:
-      - swp2
+      - swp
     NormalizedInterfaceIn:
     - swp1
     - swp2

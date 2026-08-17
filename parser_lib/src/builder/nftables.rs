@@ -3,7 +3,7 @@ use crate::builder::{
 };
 use crate::domain as d;
 use crate::part::InterfaceType;
-use crate::part::nftables::{ACL, ACLRule, NAT, NATRule, Vendor};
+use crate::part::nftables::{ACL, ACLRule, NAT, NATOption, NATRule, Translated, Vendor};
 use std::{cell::RefCell, rc::Rc};
 
 use crate::domain::nftables::{Context, NATType};
@@ -234,22 +234,22 @@ impl<'a> NATBuilder<'a> {
     }
 }
 
-impl<'a> Mapper<NAT<'a>> for NATBuilder<'a> {
-    fn mapping(&mut self, item: NAT<'a>) {
+impl<'a> Mapper<NATOption<'a>> for NATBuilder<'a> {
+    fn mapping(&mut self, item: NATOption<'a>) {
         match item {
-            NAT::Type(v) => self.type_ = v,
-            NAT::Jump(v) => {
+            NATOption::Type(v) => self.type_ = v,
+            NATOption::Jump(v) => {
                 let ctx = self.ctx.borrow();
                 if ctx.user_chain_names.iter().any(|s| s == v) {
                     self.type_ = NATType::JUMP;
                     self.target = d::Str::new(v);
                 }
             }
-            NAT::Goto(v) => {
+            NATOption::Goto(v) => {
                 self.type_ = NATType::GOTO;
                 self.target = d::Str::new(v);
             }
-            NAT::InterfaceIn((operator, values)) => {
+            NATOption::InterfaceIn((operator, values)) => {
                 for item in values {
                     let (type_, value) = item;
                     let str_operator = d::StringOperator::single(operator, value);
@@ -268,7 +268,7 @@ impl<'a> Mapper<NAT<'a>> for NATBuilder<'a> {
                     }
                 }
             }
-            NAT::InterfaceOut((operator, values)) => {
+            NATOption::InterfaceOut((operator, values)) => {
                 for item in values {
                     let (type_, value) = item;
                     let str_operator = d::StringOperator::single(operator, value);
@@ -287,8 +287,6 @@ impl<'a> Mapper<NAT<'a>> for NATBuilder<'a> {
                     }
                 }
             }
-
-            _ => panic!("unreachable!"),
         }
     }
 }
@@ -471,41 +469,41 @@ impl<'a> Mapper<NATRule<'a>> for RawNATRule<'a> {
             NATRule::Space => (),
             NATRule::Protocol(protocol) => self.protocol.mapping(protocol),
             NATRule::General(v) => self.general.mapping(v),
-            NATRule::Extended(v) => {
-                if let NAT::TranslatedSource((address, port)) = v {
-                    self.extended.translated_source(address);
+            NATRule::Extended(v) => match v {
+                NAT::Option(nat_option) => self.extended.mapping(nat_option),
+                NAT::Translated(translated) => {
+                    if let Translated::Source((address, port)) = translated {
+                        self.extended.translated_source(address);
 
-                    if let Some(v) = port {
-                        self.protocol.set_translated_source(v);
-                    }
-                    return;
-                };
-
-                if let NAT::TranslatedDestination((address, port)) = v {
-                    self.extended.translated_destination(address);
-
-                    if let Some(v) = port {
-                        self.protocol.set_translated_destination(v);
-                    }
-                    return;
-                };
-
-                if let NAT::TranslatedPort(port) = v {
-                    if self.extended.is_translated_to_destination() {
-                        self.protocol.set_translated_destination(port);
+                        if let Some(v) = port {
+                            self.protocol.set_translated_source(v);
+                        }
                         return;
                     };
 
-                    if self.extended.is_translated_to_source() {
-                        self.protocol.set_translated_source(port);
+                    if let Translated::Destination((address, port)) = translated {
+                        self.extended.translated_destination(address);
+
+                        if let Some(v) = port {
+                            self.protocol.set_translated_destination(v);
+                        }
+                        return;
+                    };
+
+                    if let Translated::Port(port) = translated {
+                        if self.extended.is_translated_to_destination() {
+                            self.protocol.set_translated_destination(port);
+                            return;
+                        };
+
+                        if self.extended.is_translated_to_source() {
+                            self.protocol.set_translated_source(port);
+                            return;
+                        }
                         return;
                     }
-                    return;
                 }
-
-                self.extended.mapping(v);
-            }
-
+            },
             NATRule::Vendor(v) => self.vendor.mapping(v),
         };
     }

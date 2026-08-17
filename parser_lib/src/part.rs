@@ -61,15 +61,23 @@ pub mod nftables {
         InterfaceOut((bool, Vec<(InterfaceType, &'a str)>)),
     }
 
-    pub enum NAT<'a> {
+    pub enum NATOption<'a> {
         Type(d::nftables::NATType),
         Jump(&'a str),
         Goto(&'a str),
         InterfaceIn((bool, Vec<(InterfaceType, &'a str)>)),
         InterfaceOut((bool, Vec<(InterfaceType, &'a str)>)),
-        TranslatedSource((d::IPOperator, Option<d::PortOperator>)),
-        TranslatedDestination((d::IPOperator, Option<d::PortOperator>)),
-        TranslatedPort(d::PortOperator),
+    }
+
+    pub enum Translated {
+        Source((d::IPOperator, Option<d::PortOperator>)),
+        Destination((d::IPOperator, Option<d::PortOperator>)),
+        Port(d::PortOperator),
+    }
+
+    pub enum NAT<'a> {
+        Option(NATOption<'a>),
+        Translated(Translated),
     }
 
     pub enum Vendor {

@@ -1083,7 +1083,7 @@ mod nat {
     use super::*;
     use crate::{
         builder::{Mapper, nftables::RawNATRule},
-        part::nftables::{NAT, NATRule, Vendor},
+        part::nftables::{NAT, NATOption, NATRule, Translated, Vendor},
     };
 
     fn type_(input: &str) -> IResult<&str, d::nftables::NATType> {
@@ -1101,14 +1101,16 @@ mod nat {
     fn nat_option<'a>(input: &'a str) -> IResult<&'a str, NAT<'a>> {
         alt_impl!(
             NAT,
-            "Type" = map_parser(tag_value("-j"), type_),
-            "Jump" = tag_value("-j"),
-            "Goto" = tag_value("-g"),
-            "InterfaceIn" = interface("-i"),
-            "InterfaceOut" = interface("-o"),
-            "TranslatedSource" = address_port("--to-source"),
-            "TranslatedDestination" = address_port("--to-destination"),
-            "TranslatedPort" = to_port,
+            "Option" = map(map_parser(tag_value("-j"), type_), |v| NATOption::Type(v)),
+            "Option" = map(tag_value("-j"), |v| NATOption::Jump(v)),
+            "Option" = map(tag_value("-g"), |v| NATOption::Goto(v)),
+            "Option" = map(interface("-i"), |v| NATOption::InterfaceIn(v)),
+            "Option" = map(interface("-o"), |v| NATOption::InterfaceOut(v)),
+            "Translated" = map(address_port("--to-source"), |v| Translated::Source(v)),
+            "Translated" = map(address_port("--to-destination"), |v| {
+                Translated::Destination(v)
+            }),
+            "Translated" = map(to_port, |v| Translated::Port(v)),
         )
         .parse(input)
     }
