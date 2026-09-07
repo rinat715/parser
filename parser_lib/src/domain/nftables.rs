@@ -295,6 +295,8 @@ impl Table {
     }
     // cтомость перемeщения вектора
     // For Vec<Bar>, that type is a (growable) vector on the heap. The size_of::<Vec<Bar>>() on the other hand is always just 3 * size_of::<usize>(). So that’s how much a move coss.
+    // TODO сделать Dyn Trait 
+    // а лучше вообще разделить 
     pub fn process_acl_rules<'a>(&mut self, values: Vec<d::Value<RawACLRule<'a>>>) {
         for item in values {
             match item {

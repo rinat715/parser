@@ -296,19 +296,6 @@ impl<'a> Builder<d::nftables::ACLRule> for RawACLRule<'a> {
 }
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 maturin 0.12.20
 pip install maturin==0.12.20
 pyo3 0.15.2
