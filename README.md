@@ -323,19 +323,6 @@ get("-A INPUT -j DROP -i swp+ -o swp1", Context([], ["swp1", "swp2"]))
 
 ```
 
-
-```
->> get("", c)
-
-thread '<unnamed>' (243342) panicked at src/lib.rs:36:77:
-called `Result::unwrap()` on an `Err` value: Error(Error { input: "", code: Many1 })
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-Traceback (most recent call last):
-  File "<stdin>", line 1, in <module>
-pyo3_runtime.PanicException: called `Result::unwrap()` on an `Err` value: Error(Error { input: "", code: Many1 })
-
-```
-
 #### Сборка линуксов 
 ```
 pyenv activate parser
@@ -356,7 +343,8 @@ export PYO3_CROSS_LIB_DIR='/AppData/Local/Programs/Python/Python36-32/libs'
 maturin build  -m parser/Cargo.toml --target i686-pc-windows-gnu
 ```
 
-  -- PYO3_PRINT_CONFIG=1 is set, printing configuration and halting compile --
+```
+  PYO3_PRINT_CONFIG=1 is set, printing configuration and halting compile --
   implementation=CPython
   version=3.6
   shared=true
@@ -365,6 +353,7 @@ maturin build  -m parser/Cargo.toml --target i686-pc-windows-gnu
   lib_dir=/AppData/Local/Programs/Python/Python36-32/libs
   build_flags=WITH_THREAD
   suppress_build_script_link_lines=false
+```
 
 
 
